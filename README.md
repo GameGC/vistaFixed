@@ -3,11 +3,11 @@
 [![npm version](https://badge.fury.io/js/@rxliuli%2Fvista.svg)](https://www.npmjs.com/package/@rxliuli/vista)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A powerful homogeneous request interception library that supports unified interception of Fetch/XHR requests. It allows you to intervene at different stages of the request lifecycle, enabling various functions such as request monitoring, modification, and mocking.
+A powerful homogeneous request interception library that supports unified interception of Fetch/XHR/WebSocket requests. It allows you to intervene at different stages of the request lifecycle, enabling various functions such as request monitoring, modification, and mocking.
 
 ## Characteristics
 
-- 🚀 Supports both Fetch and XHR request interception
+- 🚀 Supports Fetch, XHR and WebSocket interception
 - 🎯 Use middleware pattern, flexible and easy to expand
 - 💫 Support interventions before and after requests
 - 🔄 Modifiable request and response data
@@ -198,6 +198,44 @@ new Vista([interceptFetch, interceptXHR])
   .intercept()
 ```
 
+### Intercept WebSocket messages
+
+```ts
+import { Vista, interceptWebSocket } from '@rxliuli/vista'
+
+new Vista([interceptWebSocket])
+  .use(async (c, next) => {
+    // Intercept messages from server → client
+    c.onServerMessage((event) => {
+      console.log('Server sent:', event.data)
+      event.replaceWith(`[modified] ${event.data}`) // modify the message
+    })
+    // Intercept messages from client → server
+    c.onClientMessage((event) => {
+      console.log('Client sending:', event.data)
+      // event.preventDefault() // block the message
+    })
+    await next() // establish real connection
+  })
+  .intercept()
+```
+
+### Mock WebSocket connection
+
+```ts
+import { Vista, interceptWebSocket } from '@rxliuli/vista'
+
+new Vista([interceptWebSocket])
+  .use(async (c) => {
+    // Don't call next() — fully mock the connection
+    c.onClientMessage((event) => {
+      // Simulate server response
+      c.sendToClient(`Echo: ${event.data}`)
+    })
+  })
+  .intercept()
+```
+
 ## API Reference
 
 ### Vista Class
@@ -217,6 +255,21 @@ The middleware function receives two parameters:
     `res`: Response object
   - `type`: Request type, `fetch` or `xhr`
 - `next`: Call the function of the next middleware or original request
+
+### WebSocket Middleware Context
+
+The WebSocket middleware function receives:
+
+- `context`: WebSocket connection context
+  - `url`: The WebSocket URL
+  - `protocols`: Requested sub-protocols
+  - `sendToClient(data)`: Inject a message to the client (simulate server push)
+  - `sendToServer(data)`: Send a message to the server (simulate client send)
+  - `onClientMessage(handler)`: Intercept client → server messages. The handler receives an event with `data`, `replaceWith(newData)`, and `preventDefault()`
+  - `onServerMessage(handler)`: Intercept server → client messages (same event interface)
+  - `onOpen(handler)`: Called when the connection opens
+  - `onClose(handler)`: Called when the connection closes, receives `(code, reason)`
+- `next`: Call to establish the real WebSocket connection. If not called, the connection is fully mocked
 
 ## FAQ
 

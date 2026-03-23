@@ -1,4 +1,5 @@
 import { serve, ServerType } from '@hono/node-server'
+import { createNodeWebSocket } from '@hono/node-ws'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { streamSSE } from 'hono/streaming'
@@ -10,6 +11,7 @@ let server: ServerType
 declare module 'vitest' {
   export interface ProvidedContext {
     serverUrl: string
+    wsUrl: string
   }
 }
 
@@ -85,10 +87,24 @@ export async function setup(project: TestProject) {
       return c.text(body)
     })
 
+  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app })
+  app.get(
+    '/ws',
+    upgradeWebSocket((c) => {
+      return {
+        onMessage(event, ws) {
+          ws.send(`echo:${event.data}`)
+        },
+      }
+    }),
+  )
+
   project.provide('serverUrl', `http://localhost:${port}`)
+  project.provide('wsUrl', `ws://localhost:${port}/ws`)
   server = serve({ ...app, port }, (info) => {
     // console.log(`server listening on http://localhost:${info.port}`)
   })
+  injectWebSocket(server)
 }
 
 export async function teardown() {

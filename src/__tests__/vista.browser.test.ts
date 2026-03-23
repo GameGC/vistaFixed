@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, inject, it, vi } from 'vitest'
 import { Vista } from '../vista'
 import { interceptFetch } from '../interceptors/fetch'
 import { interceptXHR } from '../interceptors/xhr'
+import { interceptWebSocket } from '../interceptors/ws'
 import { userEvent } from '@vitest/browser/context'
 
 describe('Vista', () => {
@@ -25,6 +26,32 @@ describe('Vista', () => {
     expect(r.id).toBe(2)
     expect(logger).toBeCalledTimes(1)
 
+    vista.destroy()
+  })
+  it('websocket', async () => {
+    const vista = new Vista([interceptWebSocket])
+    const logger = vi.fn()
+    vista.use(async (c, next) => {
+      logger(c.url)
+      c.onServerMessage((event) => {
+        event.replaceWith(`intercepted:${event.data}`)
+      })
+      await next()
+    })
+    vista.intercept()
+
+    const ws = new WebSocket(inject('wsUrl'))
+    await new Promise((resolve) => ws.addEventListener('open', resolve))
+
+    const msgPromise = new Promise<MessageEvent>((resolve) =>
+      ws.addEventListener('message', resolve, { once: true }),
+    )
+    ws.send('Hello')
+    const event = await msgPromise
+    expect(event.data).toBe('intercepted:echo:Hello')
+    expect(logger).toHaveBeenCalledTimes(1)
+
+    ws.close()
     vista.destroy()
   })
 })
