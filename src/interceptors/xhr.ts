@@ -3,24 +3,8 @@ import { HTTPException } from '../http-exception'
 import type { Interceptor } from '../types'
 import { getGlobalThis, type FetchContext, type FetchMiddleware } from './fetch'
 
-function xhrToResponse(xhr: XMLHttpRequest) {
-  const responseInit = {
-    status: xhr.status,
-    statusText: xhr.statusText,
-    headers: parseHeadersText(xhr.getAllResponseHeaders()),
-  }
-  // ref: https://github.com/jpillora/xhook/pull/121/files
-  const BODYLESS_STATUS_CODES = [101, 204, 205, 304]
-  let body = xhr.response
-  if (BODYLESS_STATUS_CODES.includes(xhr.status)) {
-    body = null
-  } else if (xhr.responseType === '' || xhr.responseType === 'text') {
-    body = xhr.responseText
-  } else if (xhr.responseType === 'json') {
-    body = JSON.stringify(xhr.response)
-  }
-  return new Response(body, responseInit)
-}
+// ref: https://github.com/jpillora/xhook/pull/121/files
+const BODYLESS_STATUS_CODES = [101, 204, 205, 304]
 
 async function responseToXHR(
   response: Response,
@@ -240,6 +224,35 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
       __responseText?: string
     }
 
+    // Build a Response by reading from `super.*` rather than `this.*`. When
+    // another extension subclasses CustomXHR (e.g. uBOL Lite's
+    // json-prune-xhr-response), `this.response` walks the whole prototype
+    // chain starting at the most-derived class, so vista's middleware would
+    // receive data that has already been processed by a downstream layer.
+    // Reading through `super` makes vista see only its direct upstream,
+    // which is what the request/response pipeline model requires — see
+    // docs/ubol-compat.md.
+    #buildResponseFromSuper(): Response {
+      const status: number = super.status
+      const statusText: string = super.statusText
+      const responseType: XMLHttpRequestResponseType = super.responseType
+      const superResponse: any = super.response
+      const headers = parseHeadersText(
+        (super.getAllResponseHeaders as () => string).call(this),
+      )
+      let body: any = superResponse
+      if (BODYLESS_STATUS_CODES.includes(status)) {
+        body = null
+      } else if (responseType === '' || responseType === 'text') {
+        // `responseText` is only accessible when responseType is '' or 'text';
+        // reading it under any other type throws InvalidStateError.
+        body = super.responseText
+      } else if (responseType === 'json') {
+        body = JSON.stringify(superResponse)
+      }
+      return new Response(body, { status, statusText, headers })
+    }
+
     async send(body?: Document | XMLHttpRequestBodyInit | null): Promise<void> {
       this.#body = body
 
@@ -389,7 +402,7 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
         super.addEventListener.apply(this, [
           'load',
           (_ev) => {
-            c.res = xhrToResponse(this)
+            c.res = this.#buildResponseFromSuper()
             origin.res = c.res
             resolve()
           },

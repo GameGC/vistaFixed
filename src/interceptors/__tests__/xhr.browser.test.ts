@@ -551,4 +551,49 @@ describe('interceptXHR', () => {
     expect(await promise).toBe('test') // the body should be updated to 'test'
     unIntercept()
   })
+  // regression test: when another extension subclasses vista's XHR and
+  // overrides `response` (e.g. uBOL Lite's json-prune-xhr-response), vista's
+  // middleware must still see the untouched upstream body, not the pruned
+  // downstream value.
+  it('middleware sees upstream body, not data rewritten by a downstream subclass', async () => {
+    const serverUrl = inject('serverUrl')
+    const seen: unknown[] = []
+    const unIntercept = interceptXHR([
+      async (c, next) => {
+        await next()
+        seen.push(await c.res.clone().json())
+      },
+    ])
+
+    const VistaXHR = globalThis.XMLHttpRequest
+    class DownstreamXHR extends VistaXHR {
+      get response() {
+        return { pruned: true }
+      }
+    }
+    globalThis.XMLHttpRequest = DownstreamXHR as any
+
+    try {
+      const { promise, resolve } = Promise.withResolvers<unknown>()
+      const xhr = new XMLHttpRequest()
+      xhr.open('GET', `${serverUrl}/todos/1`)
+      xhr.responseType = 'json'
+      xhr.onload = () => resolve(xhr.response)
+      xhr.send()
+      const finalResponse = await promise
+
+      // The downstream override is still visible to the final consumer …
+      expect(finalResponse).toEqual({ pruned: true })
+      // … but vista's middleware saw the original upstream body.
+      expect(seen[0]).toEqual({
+        userId: 1,
+        id: 1,
+        title: 'delectus aut autem',
+        completed: false,
+      })
+    } finally {
+      globalThis.XMLHttpRequest = VistaXHR
+      unIntercept()
+    }
+  })
 })
