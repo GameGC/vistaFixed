@@ -34,7 +34,7 @@
     "@vitest/browser": "^3.2.4",
     "detect-port": "^2.1.0",
     "hono": "^4.9.8",
-    "playwright": "^1.55.0",
+    "playwright": "^1.60.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "typescript": "^5.9.2",
