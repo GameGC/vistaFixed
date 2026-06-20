@@ -173,20 +173,42 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
         ([t, l, o]) => t !== type || l !== listener || o !== options,
       )
     }
-    set onload(callback: (this: XMLHttpRequest, ev: ProgressEvent) => any) {
-      this.#listeners.push(['load', callback, false])
+    #onload: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null = null
+    #onloadend: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null = null
+    #onerror: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null = null
+    #onprogress: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null =
+      null
+    #onreadystatechange: ((this: XMLHttpRequest, ev: Event) => any) | null = null
+
+    get onload() {
+      return this.#onload
     }
-    set onloadend(callback: (this: XMLHttpRequest, ev: ProgressEvent) => any) {
-      this.#listeners.push(['loadend', callback, false])
+    set onload(callback: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null) {
+      this.#onload = callback
     }
-    set onerror(callback: (this: XMLHttpRequest, ev: ProgressEvent) => any) {
-      this.#listeners.push(['error', callback, false])
+    get onloadend() {
+      return this.#onloadend
     }
-    set onprogress(callback: (this: XMLHttpRequest, ev: ProgressEvent) => any) {
-      this.#listeners.push(['progress', callback, false])
+    set onloadend(callback: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null) {
+      this.#onloadend = callback
     }
-    set onreadystatechange(callback: (this: XMLHttpRequest, ev: Event) => any) {
-      this.#listeners.push(['readystatechange', callback, false])
+    get onerror() {
+      return this.#onerror
+    }
+    set onerror(callback: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null) {
+      this.#onerror = callback
+    }
+    get onprogress() {
+      return this.#onprogress
+    }
+    set onprogress(callback: ((this: XMLHttpRequest, ev: ProgressEvent) => any) | null) {
+      this.#onprogress = callback
+    }
+    get onreadystatechange() {
+      return this.#onreadystatechange
+    }
+    set onreadystatechange(callback: ((this: XMLHttpRequest, ev: Event) => any) | null) {
+      this.#onreadystatechange = callback
     }
 
     get status() {
@@ -222,6 +244,25 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
 
     #responseXHR?: XMLHttpRequest & {
       __responseText?: string
+    }
+
+    #getOnHandler(
+      type: string,
+    ): ((this: XMLHttpRequest, ev: any) => any) | null {
+      switch (type) {
+        case 'load':
+          return this.#onload
+        case 'loadend':
+          return this.#onloadend
+        case 'error':
+          return this.#onerror
+        case 'progress':
+          return this.#onprogress
+        case 'readystatechange':
+          return this.#onreadystatechange
+        default:
+          return null
+      }
     }
 
     // Build a Response by reading from `super.*` rather than `this.*`. When
@@ -302,10 +343,12 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
             this.responseType,
           )
         }
+        const errorEvent = new ProgressEvent('error')
+        this.#onerror?.call(this, errorEvent)
         this.#listeners
           .filter(([type]) => type === 'error')
           .forEach(([_type, listener, _options]) => {
-            listener.call(this, new ProgressEvent('error'))
+            listener.call(this, errorEvent)
           })
         return
       }
@@ -315,7 +358,9 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
       const progressCallbacks = this.#listeners.filter(
         ([type]) => type === 'progress',
       )
-      if (progressCallbacks.length > 0) {
+      const hasProgress =
+        progressCallbacks.length > 0 || this.#onprogress !== null
+      if (hasProgress) {
         if (
           this.#responseXHR?.response instanceof ReadableStream &&
           c.res.headers.get('Content-Type') === 'text/event-stream'
@@ -334,25 +379,30 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
               total: parseInt(c.res.headers.get('Content-Length') || '0', 10),
             })
             this.#responseXHR.__responseText = responseText
+            this.#onprogress?.call(this, progressEvent)
             progressCallbacks.forEach(([_type, listener, _options]) => {
               listener.call(this, progressEvent)
             })
             chunk = await reader.read()
           }
         } else {
+          const progressEvent = new ProgressEvent('progress')
+          this.#onprogress?.call(this, progressEvent)
           progressCallbacks.forEach(([_type, listener, _options]) => {
-            listener.call(this, new ProgressEvent('progress'))
+            listener.call(this, progressEvent)
           })
         }
       }
 
-      this.#listeners
-        .filter(([type]) =>
-          ['load', 'loadend', 'readystatechange'].includes(type),
-        )
-        .forEach(([type, listener, _options]) => {
-          listener.call(this, new ProgressEvent(type))
-        })
+      for (const type of ['load', 'loadend', 'readystatechange'] as const) {
+        const event = new ProgressEvent(type)
+        this.#getOnHandler(type)?.call(this, event)
+        this.#listeners
+          .filter(([t]) => t === type)
+          .forEach(([_t, listener, _options]) => {
+            listener.call(this, event)
+          })
+      }
     }
 
     #getMiddleware: (origin: {
@@ -419,6 +469,7 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
             if (this.readyState === XMLHttpRequest.DONE) {
               return
             }
+            this.#onreadystatechange?.call(this, ev as ProgressEvent)
             this.#listeners
               .filter(([type]) => type === 'readystatechange')
               .forEach(([_type, listener, _options]) => {

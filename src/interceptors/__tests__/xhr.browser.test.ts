@@ -551,6 +551,56 @@ describe('interceptXHR', () => {
     expect(await promise).toBe('test') // the body should be updated to 'test'
     unIntercept()
   })
+  it('should not crash when onload is set to null', async () => {
+    const unIntercept = interceptXHR([
+      async (_c, next) => {
+        await next()
+      },
+    ])
+    const errors: any[] = []
+    const onError = (e: PromiseRejectionEvent) => {
+      errors.push(e.reason)
+      e.preventDefault()
+    }
+    window.addEventListener('unhandledrejection', onError)
+    try {
+      const xhr = await new Promise<XMLHttpRequest>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('GET', `${inject('serverUrl')}/todos/1`)
+        xhr.onload = null
+        xhr.addEventListener('load', () => resolve(xhr))
+        xhr.onerror = () => reject(xhr)
+        xhr.send()
+      })
+      expect(xhr.status).toBe(200)
+      await new Promise((r) => setTimeout(r, 50))
+      expect(errors).toEqual([])
+    } finally {
+      window.removeEventListener('unhandledrejection', onError)
+      unIntercept()
+    }
+  })
+  it('setting onload twice should only call the last handler', async () => {
+    const calls: string[] = []
+    const unIntercept = interceptXHR([
+      async (_c, next) => {
+        await next()
+      },
+    ])
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('GET', `${inject('serverUrl')}/todos/1`)
+      xhr.onload = () => calls.push('first')
+      xhr.onload = () => {
+        calls.push('second')
+        resolve()
+      }
+      xhr.onerror = () => reject()
+      xhr.send()
+    })
+    expect(calls).toEqual(['second'])
+    unIntercept()
+  })
   // regression test: when another extension subclasses vista's XHR and
   // overrides `response` (e.g. uBOL Lite's json-prune-xhr-response), vista's
   // middleware must still see the untouched upstream body, not the pruned
