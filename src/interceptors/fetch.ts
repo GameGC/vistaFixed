@@ -25,19 +25,26 @@ export function getGlobalThis(): typeof globalThis {
 }
 
 export const interceptFetch: Interceptor<FetchMiddleware> = function (
-  middlewares: FetchMiddleware[],
+    middlewares: FetchMiddleware[],
 ) {
   const globalContext = getGlobalThis()
-
-  // FIX 1: Bind pureFetch to the global context to avoid 'TypeError: Illegal invocation'
   const pureFetch = globalContext.fetch.bind(globalContext)
 
   globalContext.fetch = async (input, init) => {
+    // FIX 1: Safely clone the Request if it already exists to prevent stream locking
+    let req: Request
+    if (input instanceof Request) {
+      req = !input.bodyUsed ? input.clone() : input
+    } else {
+      req = new Request(input, init)
+    }
+
     const c: FetchContext = {
-      req: new Request(input, init),
+      req,
       res: new Response(),
       type: 'fetch',
     }
+
     try {
       await handleRequest(c, [
         ...middlewares,
@@ -46,6 +53,9 @@ export const interceptFetch: Interceptor<FetchMiddleware> = function (
         },
       ])
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw err
+      }
       if (err instanceof HTTPException) {
         return err.getResponse()
       }
@@ -55,6 +65,6 @@ export const interceptFetch: Interceptor<FetchMiddleware> = function (
   }
 
   return () => {
-    getGlobalThis().fetch = pureFetch
+    globalContext.fetch = pureFetch
   }
 }

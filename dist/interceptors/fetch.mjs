@@ -10,8 +10,14 @@ export const interceptFetch = function(middlewares) {
   const globalContext = getGlobalThis();
   const pureFetch = globalContext.fetch.bind(globalContext);
   globalContext.fetch = async (input, init) => {
+    let req;
+    if (input instanceof Request) {
+      req = !input.bodyUsed ? input.clone() : input;
+    } else {
+      req = new Request(input, init);
+    }
     const c = {
-      req: new Request(input, init),
+      req,
       res: new Response(),
       type: "fetch"
     };
@@ -23,6 +29,9 @@ export const interceptFetch = function(middlewares) {
         }
       ]);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw err;
+      }
       if (err instanceof HTTPException) {
         return err.getResponse();
       }
@@ -31,6 +40,6 @@ export const interceptFetch = function(middlewares) {
     return c.res;
   };
   return () => {
-    getGlobalThis().fetch = pureFetch;
+    globalContext.fetch = pureFetch;
   };
 };
