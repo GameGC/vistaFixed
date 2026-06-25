@@ -10,6 +10,12 @@ export const interceptFetch = function(middlewares) {
   const globalContext = getGlobalThis();
   const pureFetch = globalContext.fetch.bind(globalContext);
   globalContext.fetch = async (input, init) => {
+    if (input instanceof Request) {
+      if (input.referrer != document.URL) {
+        console.log("skipped" + input.url);
+        await pureFetch(input);
+      }
+    }
     let req;
     if (input instanceof Request) {
       req = !input.bodyUsed ? input.clone() : input;

@@ -31,6 +31,14 @@ export const interceptFetch: Interceptor<FetchMiddleware> = function (
   const pureFetch = globalContext.fetch.bind(globalContext)
 
   globalContext.fetch = async (input, init) => {
+    if (input instanceof Request) {
+      if(input.referrer != document.URL){
+        console.log("skipped"+input.url)
+        await pureFetch(input)
+      }
+    }
+
+
     // FIX 1: Safely clone the Request if it already exists to prevent stream locking
     let req: Request
     if (input instanceof Request) {
