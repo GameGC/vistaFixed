@@ -105,7 +105,7 @@ const interceptFetch = function(middlewares) {
   globalContext.fetch = async (input, init) => {
     let req;
     if (input instanceof Request) {
-      req = input;
+      req = !input.bodyUsed ? input.clone() : new Request(input, init);
     } else {
       req = new Request(input, init);
     }

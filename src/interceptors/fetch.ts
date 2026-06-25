@@ -35,7 +35,7 @@ export const interceptFetch: Interceptor<FetchMiddleware> = function (
     // FIX 1: Safely clone the Request if it already exists to prevent stream locking
     let req: Request
     if (input instanceof Request) {
-      req =  input
+      req = !input.bodyUsed ? input.clone() : new Request(input, init)
     } else {
       req = new Request(input, init)
     }
