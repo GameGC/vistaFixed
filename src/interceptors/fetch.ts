@@ -38,7 +38,7 @@ export const interceptFetch: Interceptor<FetchMiddleware> = function (
       await handleRequest(c, [
         ...middlewares,
         async (context) => {
-          context.res = await pureFetch(c.req)
+          context.res = await pureFetch(context.req)
         },
       ])
     } catch (err) {
