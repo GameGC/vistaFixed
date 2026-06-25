@@ -7,4 +7,15 @@ export declare class Vista<T extends BaseContext> {
     use(middleware: BaseMiddleware<T>): this;
     intercept(): void;
     destroy(): void;
+    unuse(middleware: BaseMiddleware<T>): this;
+    tap(url: string | RegExp, method?: string): TapObservable<T>;
+}
+export declare class TapObservable<T extends BaseContext> {
+    private vista;
+    private url;
+    private method?;
+    constructor(vista: Vista<T>, url: string | RegExp, method?: string | undefined);
+    private middleware;
+    subscribe(handler: (c: T) => void): this;
+    unsubscribe(): this;
 }
