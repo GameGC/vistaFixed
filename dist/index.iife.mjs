@@ -100,8 +100,9 @@ function getGlobalThis() {
   return globalThis;
 }
 const interceptFetch = function(middlewares) {
-  const pureFetch = getGlobalThis().fetch;
-  getGlobalThis().fetch = async (input, init) => {
+  const globalContext = getGlobalThis();
+  const pureFetch = globalContext.fetch.bind(globalContext);
+  globalContext.fetch = async (input, init) => {
     const c = {
       req: new Request(input, init),
       res: new Response(),

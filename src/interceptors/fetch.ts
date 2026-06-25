@@ -27,8 +27,12 @@ export function getGlobalThis(): typeof globalThis {
 export const interceptFetch: Interceptor<FetchMiddleware> = function (
   middlewares: FetchMiddleware[],
 ) {
-  const pureFetch = getGlobalThis().fetch
-  getGlobalThis().fetch = async (input, init) => {
+  const globalContext = getGlobalThis()
+
+  // FIX 1: Bind pureFetch to the global context to avoid 'TypeError: Illegal invocation'
+  const pureFetch = globalContext.fetch.bind(globalContext)
+
+  globalContext.fetch = async (input, init) => {
     const c: FetchContext = {
       req: new Request(input, init),
       res: new Response(),

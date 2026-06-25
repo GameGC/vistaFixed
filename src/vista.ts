@@ -31,7 +31,7 @@ export class Vista<T extends BaseContext> {
     this.middlewares = this.middlewares.filter(m => m !== middleware)
     return this
   }
-  
+
   tap(url: string | RegExp, method?: string): TapObservable<T> {
     return new TapObservable(this, url, method)
   }
