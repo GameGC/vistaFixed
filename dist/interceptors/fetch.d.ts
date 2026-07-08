@@ -8,5 +8,6 @@ export interface FetchContext {
 export interface FetchMiddleware {
     (c: FetchContext, next: () => Promise<void>): void | Promise<void>;
 }
+export declare function stripRequestSignal(req: Request): Request;
 export declare function getGlobalThis(): typeof globalThis;
 export declare const interceptFetch: Interceptor<FetchMiddleware>;
