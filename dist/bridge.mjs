@@ -61,10 +61,12 @@ export class IsolatedWorldReceiver {
   wait(url, timeoutMs = 15e3) {
     return new Promise((resolve) => {
       let settled = false;
+      let timer;
       const finish = (value) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer)
+          clearTimeout(timer);
         off();
         resolve(value);
       };
@@ -76,7 +78,7 @@ export class IsolatedWorldReceiver {
         finish(cached);
         return;
       }
-      const timer = window.setTimeout(() => {
+      timer = window.setTimeout(() => {
         finish(null);
       }, timeoutMs);
     });

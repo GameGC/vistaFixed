@@ -90,11 +90,13 @@ export class IsolatedWorldReceiver<T = unknown> {
   wait(url: string | RegExp, timeoutMs = 15000): Promise<T | null> {
     return new Promise((resolve) => {
       let settled = false;
+      let timer: number | undefined;
 
       const finish = (value: T | null) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if(timer)
+          clearTimeout(timer);
         off();
         resolve(value);
       };
@@ -110,7 +112,7 @@ export class IsolatedWorldReceiver<T = unknown> {
         return;
       }
 
-      const timer = window.setTimeout(() => {
+      timer = window.setTimeout(() => {
         finish(null);
       }, timeoutMs);
     });
