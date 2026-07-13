@@ -5,3 +5,4 @@ export * from "./interceptors/xhr.mjs";
 export * from "./interceptors/ws.mjs";
 export * from "./middlewares/timeout.mjs";
 export * from "./middlewares/pretty-json.mjs";
+export * from "./bridge.mjs";

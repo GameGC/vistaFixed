@@ -5,3 +5,4 @@ export * from './interceptors/xhr';
 export * from './interceptors/ws';
 export * from './middlewares/timeout';
 export * from './middlewares/pretty-json';
+export * from './bridge';
