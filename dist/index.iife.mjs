@@ -274,9 +274,33 @@ const interceptFetch = function(middlewares) {
     return c.res;
   };
   return () => {
-    globalContext.fetch = makeLookNative(pureFetch, globalContext.fetch);
+    globalContext.fetch = makeLookNative$1(pureFetch, globalContext.fetch);
   };
 };
+const originalDefineProperty$1 = Object.defineProperty;
+const originalFunctionToString$1 = Function.prototype.toString;
+function makeLookNative$1(replacementFn, nativeFn) {
+  const nativeSource = originalFunctionToString$1.call(nativeFn);
+  originalDefineProperty$1(replacementFn, "toString", {
+    value() {
+      return nativeSource;
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false
+  });
+  try {
+    originalDefineProperty$1(replacementFn, "name", { value: nativeFn.name, configurable: true });
+  } catch (_) {
+  }
+  try {
+    originalDefineProperty$1(replacementFn, "length", { value: nativeFn.length, configurable: true });
+  } catch (_) {
+  }
+  return replacementFn;
+}
+
+const BODYLESS_STATUS_CODES = [101, 204, 205, 304];
 const originalDefineProperty = Object.defineProperty;
 const originalFunctionToString = Function.prototype.toString;
 function makeLookNative(replacementFn, nativeFn) {
@@ -299,8 +323,6 @@ function makeLookNative(replacementFn, nativeFn) {
   }
   return replacementFn;
 }
-
-const BODYLESS_STATUS_CODES = [101, 204, 205, 304];
 const xhrState = /* @__PURE__ */ new WeakMap();
 function getState(xhr) {
   let s = xhrState.get(xhr);
@@ -392,7 +414,7 @@ const interceptXHR = function(middlewares) {
   const originalOpen = proto.open;
   const originalSetRequestHeader = proto.setRequestHeader;
   const originalSend = proto.send;
-  proto.open = function(method, url, async = true, username, password) {
+  proto.open = makeLookNative(function(method, url, async = true, username, password) {
     const s = getState(this);
     s.method = method;
     s.url = url;
@@ -400,13 +422,17 @@ const interceptXHR = function(middlewares) {
     s.username = username;
     s.password = password;
     s.headers = {};
-  };
-  proto.setRequestHeader = function(name, value) {
+    s.nativeOpenCalled = false;
+  }, originalOpen);
+  proto.setRequestHeader = makeLookNative(function(name, value) {
     const lower = name.toLowerCase();
     const s = getState(this);
     s.headers[lower] = s.headers[lower] ? `${s.headers[lower]}, ${value}` : value;
-  };
-  proto.send = function(body) {
+    if (s.nativeOpenCalled) {
+      originalSetRequestHeader.call(this, name, value);
+    }
+  }, originalSetRequestHeader);
+  proto.send = makeLookNative(function(body) {
     const self = this;
     const s = getState(this);
     s.body = body;
@@ -424,7 +450,6 @@ const interceptXHR = function(middlewares) {
       try {
         await handleRequest(c, [
           ...middlewares,
-          // Terminal middleware: fires the real XHR and resolves with the response
           async (context) => {
             context.res = await dispatchNativeXHR(self, context.req, s, originalOpen, originalSetRequestHeader, originalSend);
           }
@@ -435,7 +460,7 @@ const interceptXHR = function(middlewares) {
       }
       await dispatchResponseEvents(self, c);
     })();
-  };
+  }, originalSend);
   return () => {
     proto.open = originalOpen;
     proto.setRequestHeader = originalSetRequestHeader;
@@ -445,7 +470,15 @@ const interceptXHR = function(middlewares) {
 };
 async function dispatchNativeXHR(xhr, req, s, originalOpen, originalSetRequestHeader, originalSend) {
   return new Promise((resolve, reject) => {
-    originalOpen.call(xhr, req.method, req.url, s.async, s.username ?? null, s.password ?? null);
+    s.nativeOpenCalled = true;
+    const args = [req.method, req.url, s.async];
+    if (s.username !== void 0 && s.username !== null) {
+      args.push(s.username);
+      if (s.password !== void 0 && s.password !== null) {
+        args.push(s.password);
+      }
+    }
+    originalOpen.apply(xhr, args);
     for (const [name, value] of req.headers.entries()) {
       if (name === "content-type" && value.startsWith("multipart/form-data; boundary=")) continue;
       originalSetRequestHeader.call(xhr, name, value);

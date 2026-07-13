@@ -4,14 +4,37 @@ import type { Interceptor } from '../types'
 import { getGlobalThis, type FetchContext, type FetchMiddleware } from './fetch'
 
 // ----------------------------------------------------------------------------
-// Helpers
+// Helpers & Cloaking
 // ----------------------------------------------------------------------------
 
 const BODYLESS_STATUS_CODES = [101, 204, 205, 304]
 
+const originalDefineProperty = Object.defineProperty
+const originalFunctionToString = Function.prototype.toString
+
+/**
+ * Cloaks our patched functions so anti-bot/APM scripts checking .toString()
+ * see "[native code]" and do not break execution.
+ */
+function makeLookNative<T extends Function>(replacementFn: T, nativeFn: Function): T {
+  const nativeSource = originalFunctionToString.call(nativeFn)
+  originalDefineProperty(replacementFn, 'toString', {
+    value() { return nativeSource },
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  })
+  try {
+    originalDefineProperty(replacementFn, 'name', { value: nativeFn.name, configurable: true })
+  } catch (_) {}
+  try {
+    originalDefineProperty(replacementFn, 'length', { value: nativeFn.length, configurable: true })
+  } catch (_) {}
+  return replacementFn
+}
+
 /**
  * Per-instance state stored directly on each XHR object.
- * Using a WeakMap keeps this fully private and GC-friendly.
  */
 interface XHRState {
   method: string
@@ -21,6 +44,7 @@ interface XHRState {
   password?: string | null
   headers: Record<string, string>
   body?: Document | XMLHttpRequestBodyInit | null
+  nativeOpenCalled?: boolean
 }
 
 const xhrState = new WeakMap<XMLHttpRequest, XHRState>()
@@ -35,7 +59,7 @@ function getState(xhr: XMLHttpRequest): XHRState {
 }
 
 // ----------------------------------------------------------------------------
-// Response helpers (unchanged from original)
+// Response helpers (unchanged)
 // ----------------------------------------------------------------------------
 
 async function responseToXHR(
@@ -126,14 +150,6 @@ function buildResponseFromXHR(xhr: XMLHttpRequest): Response {
 // Interceptor
 // ----------------------------------------------------------------------------
 
-/**
- * Intercepts XHR by patching `open`, `setRequestHeader`, and `send` on the
- * prototype — the same minimal-surface approach used by `interceptFetch`.
- *
- * Each call to `send` builds a `FetchContext`, runs it through the middleware
- * pipeline, then forwards the (possibly mutated) request to the native XHR.
- * A teardown function is returned that restores all three originals.
- */
 export const interceptXHR: Interceptor<FetchMiddleware> = function (
     middlewares: FetchMiddleware[],
 ) {
@@ -144,7 +160,6 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
     __xhrPatched?: boolean
   }
 
-  // Guard against double-patching (e.g. hot-reload / multiple SDK instances)
   if (proto.__xhrPatched) return () => {}
   proto.__xhrPatched = true
 
@@ -154,7 +169,8 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
 
   // ------ open ---------------------------------------------------------------
 
-  proto.open = function (
+  proto.open = makeLookNative(function (
+      this: XMLHttpRequest,
       method: string,
       url: string | URL,
       async = true,
@@ -167,22 +183,28 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
     s.async    = async
     s.username = username
     s.password = password
-    s.headers  = {} // reset headers on each open()
-    // Defer the real open() to send() so middleware can mutate method/url first
-  }
+    s.headers  = {}
+    s.nativeOpenCalled = false // Reset native opened flag
+  }, originalOpen)
 
   // ------ setRequestHeader ---------------------------------------------------
 
-  proto.setRequestHeader = function (name: string, value: string) {
+  proto.setRequestHeader = makeLookNative(function (this: XMLHttpRequest, name: string, value: string) {
     const lower = name.toLowerCase()
     const s     = getState(this)
-    // Fold duplicate headers (matching native XHR behaviour)
     s.headers[lower] = s.headers[lower] ? `${s.headers[lower]}, ${value}` : value
-  }
+
+    // CRITICAL FIX: If a 3rd party tracker injects tracing headers during send(),
+    // the native XHR is already "opened" internally. We must forward them immediately,
+    // or they get swallowed and the 3rd party script crashes.
+    if (s.nativeOpenCalled) {
+      originalSetRequestHeader.call(this, name, value)
+    }
+  }, originalSetRequestHeader)
 
   // ------ send ---------------------------------------------------------------
 
-  proto.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
+  proto.send = makeLookNative(function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
     const self = this
     const s    = getState(this)
     s.body     = body
@@ -199,12 +221,10 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
           res:  new Response(),
         }
 
-        // Run the middleware pipeline then dispatch the native XHR
     ;(async () => {
       try {
         await handleRequest(c, [
           ...middlewares,
-          // Terminal middleware: fires the real XHR and resolves with the response
           async (context) => {
             context.res = await dispatchNativeXHR(self, context.req, s, originalOpen, originalSetRequestHeader, originalSend)
           },
@@ -214,10 +234,9 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
         return
       }
 
-      // Dispatch remaining XHR events expected by callers
       await dispatchResponseEvents(self, c)
     })()
-  }
+  }, originalSend)
 
   // ------ teardown -----------------------------------------------------------
 
@@ -230,13 +249,9 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
 }
 
 // ----------------------------------------------------------------------------
-// Internal helpers used by the patched `send`
+// Internal helpers
 // ----------------------------------------------------------------------------
 
-/**
- * Opens and sends a real XHR using the (possibly middleware-mutated) Request,
- * then wraps the native response in a standard `Response` object.
- */
 async function dispatchNativeXHR(
     xhr: XMLHttpRequest,
     req: Request,
@@ -246,11 +261,21 @@ async function dispatchNativeXHR(
     originalSend: typeof XMLHttpRequest.prototype.send,
 ): Promise<Response> {
   return new Promise<Response>((resolve, reject) => {
-    originalOpen.call(xhr, req.method, req.url, s.async, s.username ?? null, s.password ?? null)
+    // Mark as opened so any late setRequestHeader calls from 3rd party scripts flush through
+    s.nativeOpenCalled = true
 
-    // Apply headers from the (possibly mutated) request
+    // Dynamically build args to avoid forcing "null" literals on strict backend parsers
+    const args: any[] = [req.method, req.url, s.async]
+    if (s.username !== undefined && s.username !== null) {
+      args.push(s.username)
+      if (s.password !== undefined && s.password !== null) {
+        args.push(s.password)
+      }
+    }
+
+    originalOpen.apply(xhr, args as any)
+
     for (const [name, value] of req.headers.entries()) {
-      // Skip the browser-managed multipart boundary
       if (name === 'content-type' && value.startsWith('multipart/form-data; boundary=')) continue
       originalSetRequestHeader.call(xhr, name, value)
     }
@@ -263,7 +288,6 @@ async function dispatchNativeXHR(
       reject(new Error(`${xhr.status} ${xhr.statusText}`))
     }, { once: true })
 
-    // Resolve body: if middleware replaced req, stream it out as a blob
     ;(req !== s.body
             ? req.blob().then((b) => originalSend.call(xhr, b))
             : Promise.resolve(originalSend.call(xhr, s.body ?? null))
@@ -271,9 +295,6 @@ async function dispatchNativeXHR(
   })
 }
 
-/**
- * Translates middleware / network errors into XHR error events.
- */
 async function handleSendError(xhr: XMLHttpRequest, err: unknown) {
   let syntheticXHR: XMLHttpRequest
 
@@ -290,19 +311,11 @@ async function handleSendError(xhr: XMLHttpRequest, err: unknown) {
     )
   }
 
-  // Expose the synthetic response on the instance so callers reading
-  // xhr.status / xhr.response still get the right values
   ;(xhr as any)._syntheticXHR = syntheticXHR
-
   xhr.dispatchEvent(new ProgressEvent('error'))
 }
 
-/**
- * Fires the `load`, `loadend`, and `readystatechange` events expected by XHR
- * consumers, and handles SSE streaming progress if applicable.
- */
 async function dispatchResponseEvents(xhr: XMLHttpRequest, c: FetchContext) {
-  // SSE / streaming progress
   if (
       c.res.body &&
       c.res.headers.get('Content-Type') === 'text/event-stream'
