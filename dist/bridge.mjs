@@ -59,18 +59,26 @@ export class IsolatedWorldReceiver {
     return () => this.listeners.delete(wrapped);
   }
   wait(url, timeoutMs = 15e3) {
-    const cached = this.get(url);
-    if (cached !== void 0) return Promise.resolve(cached);
     return new Promise((resolve) => {
-      const timer = window.setTimeout(() => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         off();
-        resolve(null);
-      }, timeoutMs);
+        resolve(value);
+      };
       const off = this.on(url, (payload) => {
-        window.clearTimeout(timer);
-        off();
-        resolve(payload);
+        finish(payload);
       });
+      const cached = this.get(url);
+      if (cached !== void 0) {
+        finish(cached);
+        return;
+      }
+      const timer = window.setTimeout(() => {
+        finish(null);
+      }, timeoutMs);
     });
   }
   destroy() {

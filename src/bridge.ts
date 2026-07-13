@@ -88,20 +88,32 @@ export class IsolatedWorldReceiver<T = unknown> {
   }
 
   wait(url: string | RegExp, timeoutMs = 15000): Promise<T | null> {
-    const cached = this.get(url)
-    if (cached !== undefined) return Promise.resolve(cached)
-
     return new Promise((resolve) => {
-      const timer = window.setTimeout(() => {
-        off()
-        resolve(null)
-      }, timeoutMs)
+      let settled = false;
+
+      const finish = (value: T | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        off();
+        resolve(value);
+      };
+
       const off = this.on(url, (payload) => {
-        window.clearTimeout(timer)
-        off()
-        resolve(payload)
-      })
-    })
+        finish(payload);
+      });
+
+      // Check after subscribing to avoid the race.
+      const cached = this.get(url);
+      if (cached !== undefined) {
+        finish(cached);
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
+        finish(null);
+      }, timeoutMs);
+    });
   }
 
   destroy(): void {
