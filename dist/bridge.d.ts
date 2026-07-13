@@ -1,4 +1,5 @@
 import { FetchContext } from './interceptors/fetch';
+import { BaseContext } from './types';
 import { TapObservable } from './vista';
 export interface BridgeMessage<T = unknown> {
     source: string;
@@ -6,6 +7,11 @@ export interface BridgeMessage<T = unknown> {
     payload: T;
 }
 export declare function relay(tap: TapObservable<FetchContext>, decode?: (c: FetchContext) => unknown | Promise<unknown>): TapObservable<FetchContext>;
+declare module './vista' {
+    interface TapObservable<T extends BaseContext> {
+        relay(): this;
+    }
+}
 export declare class IsolatedWorldReceiver<T = unknown> {
     private listeners;
     private store;

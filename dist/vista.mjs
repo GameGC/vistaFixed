@@ -32,7 +32,9 @@ export class TapObservable {
     this.method = method;
   }
   middleware = null;
+  handler = null;
   subscribe(handler) {
+    this.handler = handler;
     this.middleware = async (c, next) => {
       await next();
       const matchUrl = typeof this.url === "string" ? c.req.url === this.url : this.url.test(c.req.url);
@@ -41,6 +43,9 @@ export class TapObservable {
     };
     this.vista.use(this.middleware);
     return this;
+  }
+  getHandler() {
+    return this.handler;
   }
   unsubscribe() {
     if (this.middleware) {

@@ -16,6 +16,8 @@ export declare class TapObservable<T extends BaseContext> {
     private method?;
     constructor(vista: Vista<T>, url: string | RegExp, method?: string | undefined);
     private middleware;
-    subscribe(handler: (c: T) => void): this;
+    private handler;
+    subscribe(handler: (c: T) => unknown): this;
+    getHandler(): ((c: T) => unknown) | null;
     unsubscribe(): this;
 }

@@ -1,3 +1,4 @@
+import { TapObservable } from "./vista.mjs";
 function getSource() {
   return `vista-bridge:${window.location.origin}`;
 }
@@ -12,17 +13,30 @@ async function defaultDecode(c) {
     return text;
   }
 }
+function post(url, payload) {
+  const message = {
+    source: getSource(),
+    url,
+    payload
+  };
+  window.postMessage(message, "*");
+}
 export function relay(tap, decode = defaultDecode) {
   return tap.subscribe(async (c) => {
     const payload = await decode(c);
-    const message = {
-      source: getSource(),
-      url: c.req.url,
-      payload
-    };
-    window.postMessage(message, "*");
+    post(c.req.url, payload);
+    return payload;
   });
 }
+TapObservable.prototype.relay = function() {
+  const handler = this.getHandler();
+  this.unsubscribe();
+  return this.subscribe(async (c) => {
+    const payload = handler ? await handler(c) : await defaultDecode(c);
+    post(c.req.url, payload);
+    return payload;
+  });
+};
 export class IsolatedWorldReceiver {
   listeners = /* @__PURE__ */ new Set();
   store = /* @__PURE__ */ new Map();
@@ -31,6 +45,7 @@ export class IsolatedWorldReceiver {
   }
   handle = (event) => {
     if (event.source !== window) return;
+    if (event.origin !== window.location.origin) return;
     const data = event.data;
     if (!data || data.source !== getSource()) return;
     this.store.set(data.url, data.payload);

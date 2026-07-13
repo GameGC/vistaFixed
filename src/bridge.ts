@@ -1,4 +1,5 @@
 import { FetchContext } from './interceptors/fetch'
+import { BaseContext } from './types'
 import { TapObservable } from './vista'
 
 function getSource(): string {
@@ -24,18 +25,39 @@ async function defaultDecode(c: FetchContext): Promise<unknown> {
   }
 }
 
+function post(url: string, payload: unknown): void {
+  const message: BridgeMessage = {
+    source: getSource(),
+    url,
+    payload,
+  }
+  window.postMessage(message, '*')
+}
+
 export function relay(
-  tap: TapObservable<FetchContext>,
-  decode: (c: FetchContext) => unknown | Promise<unknown> = defaultDecode,
+    tap: TapObservable<FetchContext>,
+    decode: (c: FetchContext) => unknown | Promise<unknown> = defaultDecode,
 ): TapObservable<FetchContext> {
   return tap.subscribe(async (c) => {
     const payload = await decode(c)
-    const message: BridgeMessage = {
-      source: getSource(),
-      url: c.req.url,
-      payload,
-    }
-    window.postMessage(message, '*')
+    post(c.req.url, payload)
+    return payload
+  })
+}
+
+declare module './vista' {
+  interface TapObservable<T extends BaseContext> {
+    relay(): this
+  }
+}
+
+TapObservable.prototype.relay = function (this: TapObservable<FetchContext>) {
+  const handler = this.getHandler()
+  this.unsubscribe()
+  return this.subscribe(async (c) => {
+    const payload = handler ? await handler(c) : await defaultDecode(c)
+    post(c.req.url, payload)
+    return payload
   })
 }
 
@@ -49,6 +71,7 @@ export class IsolatedWorldReceiver<T = unknown> {
 
   private handle = (event: MessageEvent) => {
     if (event.source !== window) return
+    if (event.origin !== window.location.origin) return
     const data = event.data as BridgeMessage<T> | undefined
     if (!data || data.source !== getSource()) return
     this.store.set(data.url, data.payload)

@@ -44,8 +44,10 @@ export class TapObservable<T extends BaseContext> {
   ) {}
 
   private middleware: BaseMiddleware<T> | null = null
+  private handler: ((c: T) => unknown) | null = null
 
-  subscribe(handler: (c: T) => void): this {
+  subscribe(handler: (c: T) => unknown): this {
+    this.handler = handler
     this.middleware = async (c: T, next: () => Promise<void>) => {
       await next()
       const matchUrl =
@@ -55,6 +57,10 @@ export class TapObservable<T extends BaseContext> {
     }
     this.vista.use(this.middleware)
     return this
+  }
+
+  getHandler(): ((c: T) => unknown) | null {
+    return this.handler
   }
 
   unsubscribe(): this {
