@@ -62,10 +62,6 @@ export class TapObservable<T extends BaseContext> {
     return this
   }
 
-  getHandler(): ((c: T) => unknown) | null {
-    return this.handler
-  }
-
   relay(): this {
     const handler = this.handler
     return this.subscribe(async (c) => {

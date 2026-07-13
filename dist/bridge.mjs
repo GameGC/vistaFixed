@@ -33,12 +33,15 @@ export class IsolatedWorldReceiver {
   constructor() {
     window.addEventListener("message", this.handle);
   }
+  getKey(payload, url) {
+    return url;
+  }
   handle = (event) => {
     if (event.source !== window) return;
-    if (event.origin !== window.location.origin) return;
     const data = event.data;
     if (!data || data.source !== getBridgeSource()) return;
-    this.store.set(data.url, data.payload);
+    const key = this.getKey(data.payload, data.url);
+    this.store.set(key, data.payload);
     this.listeners.forEach((listener) => listener(data));
   };
   get(url) {

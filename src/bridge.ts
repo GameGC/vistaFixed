@@ -54,12 +54,20 @@ export class IsolatedWorldReceiver<T = unknown> {
     window.addEventListener('message', this.handle)
   }
 
+
+  protected getKey(payload: T, url: string): string {
+    return url
+  }
+
   private handle = (event: MessageEvent) => {
     if (event.source !== window) return
-    if (event.origin !== window.location.origin) return
     const data = event.data as BridgeMessage<T> | undefined
     if (!data || data.source !== getBridgeSource()) return
-    this.store.set(data.url, data.payload)
+
+
+    const key = this.getKey(data.payload, data.url)
+
+    this.store.set(key, data.payload)
     this.listeners.forEach((listener) => listener(data))
   }
 

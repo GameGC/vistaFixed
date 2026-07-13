@@ -66,9 +66,6 @@ class TapObservable {
     }
     return this;
   }
-  getHandler() {
-    return this.handler;
-  }
   relay() {
     const handler = this.handler;
     return this.subscribe(async (c) => {
