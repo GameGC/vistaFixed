@@ -1,3 +1,23 @@
+function getBridgeSource() {
+  return `vista-bridge:${window.location.origin}`;
+}
+async function defaultBridgeDecode(c) {
+  const text = await c.res.clone().text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+function postBridgeMessage(url, payload) {
+  const message = {
+    source: getBridgeSource(),
+    url,
+    payload
+  };
+  window.postMessage(message, "*");
+}
+
 let Vista$1 = class Vista {
   constructor(interceptors = []) {
     this.interceptors = interceptors;
@@ -35,17 +55,27 @@ class TapObservable {
   handler = null;
   subscribe(handler) {
     this.handler = handler;
-    this.middleware = async (c, next) => {
-      await next();
-      const matchUrl = typeof this.url === "string" ? c.req.url === this.url : this.url.test(c.req.url);
-      const matchMethod = !this.method || c.req.method.toUpperCase() === this.method.toUpperCase();
-      if (matchUrl && matchMethod) handler(c);
-    };
-    this.vista.use(this.middleware);
+    if (!this.middleware) {
+      this.middleware = async (c, next) => {
+        await next();
+        const matchUrl = typeof this.url === "string" ? c.req.url === this.url : this.url.test(c.req.url);
+        const matchMethod = !this.method || c.req.method.toUpperCase() === this.method.toUpperCase();
+        if (matchUrl && matchMethod && this.handler) this.handler(c);
+      };
+      this.vista.use(this.middleware);
+    }
     return this;
   }
   getHandler() {
     return this.handler;
+  }
+  relay() {
+    const handler = this.handler;
+    return this.subscribe(async (c) => {
+      const payload = handler ? await handler(c) : await defaultBridgeDecode(c);
+      postBridgeMessage(c.req.url, payload);
+      return payload;
+    });
   }
   unsubscribe() {
     if (this.middleware) {

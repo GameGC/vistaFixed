@@ -1,11 +1,10 @@
-import { TapObservable } from "./vista.mjs";
-function getSource() {
+export function getBridgeSource() {
   return `vista-bridge:${window.location.origin}`;
 }
-function matchUrl(matcher, url) {
+export function matchBridgeUrl(matcher, url) {
   return typeof matcher === "string" ? url.includes(matcher) : matcher.test(url);
 }
-async function defaultDecode(c) {
+export async function defaultBridgeDecode(c) {
   const text = await c.res.clone().text();
   try {
     return JSON.parse(text);
@@ -13,30 +12,21 @@ async function defaultDecode(c) {
     return text;
   }
 }
-function post(url, payload) {
+export function postBridgeMessage(url, payload) {
   const message = {
-    source: getSource(),
+    source: getBridgeSource(),
     url,
     payload
   };
   window.postMessage(message, "*");
 }
-export function relay(tap, decode = defaultDecode) {
+export function relay(tap, decode = defaultBridgeDecode) {
   return tap.subscribe(async (c) => {
     const payload = await decode(c);
-    post(c.req.url, payload);
+    postBridgeMessage(c.req.url, payload);
     return payload;
   });
 }
-TapObservable.prototype.relay = function() {
-  const handler = this.getHandler();
-  this.unsubscribe();
-  return this.subscribe(async (c) => {
-    const payload = handler ? await handler(c) : await defaultDecode(c);
-    post(c.req.url, payload);
-    return payload;
-  });
-};
 export class IsolatedWorldReceiver {
   listeners = /* @__PURE__ */ new Set();
   store = /* @__PURE__ */ new Map();
@@ -47,19 +37,19 @@ export class IsolatedWorldReceiver {
     if (event.source !== window) return;
     if (event.origin !== window.location.origin) return;
     const data = event.data;
-    if (!data || data.source !== getSource()) return;
+    if (!data || data.source !== getBridgeSource()) return;
     this.store.set(data.url, data.payload);
     this.listeners.forEach((listener) => listener(data));
   };
   get(url) {
     for (const [storedUrl, payload] of this.store) {
-      if (matchUrl(url, storedUrl)) return payload;
+      if (matchBridgeUrl(url, storedUrl)) return payload;
     }
     return void 0;
   }
   on(url, listener) {
     const wrapped = (message) => {
-      if (!matchUrl(url, message.url)) return;
+      if (!matchBridgeUrl(url, message.url)) return;
       listener(message.payload);
     };
     this.listeners.add(wrapped);

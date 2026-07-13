@@ -1,8 +1,7 @@
 import { FetchContext } from './interceptors/fetch'
-import { BaseContext } from './types'
-import { TapObservable } from './vista'
+import {TapObservable} from "./vista";
 
-function getSource(): string {
+export function getBridgeSource(): string {
   return `vista-bridge:${window.location.origin}`
 }
 
@@ -12,11 +11,11 @@ export interface BridgeMessage<T = unknown> {
   payload: T
 }
 
-function matchUrl(matcher: string | RegExp, url: string): boolean {
+export function matchBridgeUrl(matcher: string | RegExp, url: string): boolean {
   return typeof matcher === 'string' ? url.includes(matcher) : matcher.test(url)
 }
 
-async function defaultDecode(c: FetchContext): Promise<unknown> {
+export async function defaultBridgeDecode(c: FetchContext): Promise<unknown> {
   const text = await c.res.clone().text()
   try {
     return JSON.parse(text)
@@ -25,38 +24,24 @@ async function defaultDecode(c: FetchContext): Promise<unknown> {
   }
 }
 
-function post(url: string, payload: unknown): void {
+export function postBridgeMessage(url: string, payload: unknown): void {
   const message: BridgeMessage = {
-    source: getSource(),
+    source: getBridgeSource(),
     url,
     payload,
   }
   window.postMessage(message, '*')
 }
 
+export type { BridgeMessage }
+
 export function relay(
     tap: TapObservable<FetchContext>,
-    decode: (c: FetchContext) => unknown | Promise<unknown> = defaultDecode,
+    decode: (c: FetchContext) => unknown | Promise<unknown> = defaultBridgeDecode,
 ): TapObservable<FetchContext> {
   return tap.subscribe(async (c) => {
     const payload = await decode(c)
-    post(c.req.url, payload)
-    return payload
-  })
-}
-
-declare module './vista' {
-  interface TapObservable<T extends BaseContext> {
-    relay(): this
-  }
-}
-
-TapObservable.prototype.relay = function (this: TapObservable<FetchContext>) {
-  const handler = this.getHandler()
-  this.unsubscribe()
-  return this.subscribe(async (c) => {
-    const payload = handler ? await handler(c) : await defaultDecode(c)
-    post(c.req.url, payload)
+    postBridgeMessage(c.req.url, payload)
     return payload
   })
 }
@@ -73,21 +58,21 @@ export class IsolatedWorldReceiver<T = unknown> {
     if (event.source !== window) return
     if (event.origin !== window.location.origin) return
     const data = event.data as BridgeMessage<T> | undefined
-    if (!data || data.source !== getSource()) return
+    if (!data || data.source !== getBridgeSource()) return
     this.store.set(data.url, data.payload)
     this.listeners.forEach((listener) => listener(data))
   }
 
   get(url: string | RegExp): T | undefined {
     for (const [storedUrl, payload] of this.store) {
-      if (matchUrl(url, storedUrl)) return payload
+      if (matchBridgeUrl(url, storedUrl)) return payload
     }
     return undefined
   }
 
   on(url: string | RegExp, listener: (payload: T) => void): () => void {
     const wrapped = (message: BridgeMessage<T>) => {
-      if (!matchUrl(url, message.url)) return
+      if (!matchBridgeUrl(url, message.url)) return
       listener(message.payload)
     }
     this.listeners.add(wrapped)

@@ -1,17 +1,16 @@
 import { FetchContext } from './interceptors/fetch';
-import { BaseContext } from './types';
-import { TapObservable } from './vista';
+import { TapObservable } from "./vista";
+export declare function getBridgeSource(): string;
 export interface BridgeMessage<T = unknown> {
     source: string;
     url: string;
     payload: T;
 }
+export declare function matchBridgeUrl(matcher: string | RegExp, url: string): boolean;
+export declare function defaultBridgeDecode(c: FetchContext): Promise<unknown>;
+export declare function postBridgeMessage(url: string, payload: unknown): void;
+export type { BridgeMessage };
 export declare function relay(tap: TapObservable<FetchContext>, decode?: (c: FetchContext) => unknown | Promise<unknown>): TapObservable<FetchContext>;
-declare module './vista' {
-    interface TapObservable<T extends BaseContext> {
-        relay(): this;
-    }
-}
 export declare class IsolatedWorldReceiver<T = unknown> {
     private listeners;
     private store;

@@ -19,5 +19,6 @@ export declare class TapObservable<T extends BaseContext> {
     private handler;
     subscribe(handler: (c: T) => unknown): this;
     getHandler(): ((c: T) => unknown) | null;
+    relay(): this;
     unsubscribe(): this;
 }

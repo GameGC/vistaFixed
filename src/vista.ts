@@ -1,4 +1,5 @@
 import { BaseContext, BaseMiddleware } from './types'
+import {defaultBridgeDecode, postBridgeMessage} from "./bridge";
 
 export class Vista<T extends BaseContext> {
   private middlewares: BaseMiddleware<T>[] = []
@@ -48,19 +49,30 @@ export class TapObservable<T extends BaseContext> {
 
   subscribe(handler: (c: T) => unknown): this {
     this.handler = handler
-    this.middleware = async (c: T, next: () => Promise<void>) => {
-      await next()
-      const matchUrl =
-          typeof this.url === 'string' ? c.req.url === this.url : this.url.test(c.req.url)
-      const matchMethod = !this.method || c.req.method.toUpperCase() === this.method.toUpperCase()
-      if (matchUrl && matchMethod) handler(c)
+    if (!this.middleware) {
+      this.middleware = async (c: T, next: () => Promise<void>) => {
+        await next()
+        const matchUrl =
+            typeof this.url === 'string' ? c.req.url === this.url : this.url.test(c.req.url)
+        const matchMethod = !this.method || c.req.method.toUpperCase() === this.method.toUpperCase()
+        if (matchUrl && matchMethod && this.handler) this.handler(c)
+      }
+      this.vista.use(this.middleware)
     }
-    this.vista.use(this.middleware)
     return this
   }
 
   getHandler(): ((c: T) => unknown) | null {
     return this.handler
+  }
+
+  relay(): this {
+    const handler = this.handler
+    return this.subscribe(async (c) => {
+      const payload = handler ? await handler(c) : await defaultBridgeDecode(c as any)
+      postBridgeMessage((c as any).req.url, payload)
+      return payload
+    })
   }
 
   unsubscribe(): this {
