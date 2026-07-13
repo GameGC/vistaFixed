@@ -57,14 +57,15 @@ async function responseToXHR(response, responseType) {
   return xhr;
 }
 function parseHeadersText(text) {
-  return text.split("\r\n").filter((header) => header).reduce(
-    (acc, current) => {
-      const [key, value] = current.split(": ");
+  return text.split("\r\n").filter((header) => header).reduce((acc, current) => {
+    const index = current.indexOf(": ");
+    if (index > -1) {
+      const key = current.slice(0, index);
+      const value = current.slice(index + 2);
       acc[key] = value;
-      return acc;
-    },
-    {}
-  );
+    }
+    return acc;
+  }, {});
 }
 export const interceptXHR = function(middlewares) {
   if (typeof XMLHttpRequest === "undefined") {
@@ -72,131 +73,145 @@ export const interceptXHR = function(middlewares) {
     };
   }
   class CustomXHR extends getGlobalThis().XMLHttpRequest {
-    #method = "";
-    #url = "";
-    #async;
-    #username;
-    #password;
-    #headers = {};
-    #body;
-    #listeners = [];
-    open(method, url, async, username, password) {
-      this.#method = method;
-      this.#url = url;
-      if (async !== void 0) {
-        this.#async = async;
-      }
-      if (username !== void 0) {
-        this.#username = username;
-      }
-      if (password !== void 0) {
-        this.#password = password;
-      }
-    }
-    static #middlewares = [];
+    _method = "";
+    _url = "";
+    _async;
+    _username;
+    _password;
+    _headers = {};
+    _body;
+    // Internal state renamed from # to _
+    _listeners = [];
+    _responseXHR;
+    _onload = null;
+    _onloadend = null;
+    _onerror = null;
+    _onprogress = null;
+    _onreadystatechange = null;
+    static _middlewares = [];
     static middlewares(middlewares2) {
-      CustomXHR.#middlewares = middlewares2;
+      CustomXHR._middlewares = middlewares2;
+    }
+    get response() {
+      return this._responseXHR?.response ?? super.response;
+    }
+    getResponseHeader(name) {
+      if (this._responseXHR) {
+        return this._responseXHR.getResponseHeader(name);
+      }
+      return super.getResponseHeader(name);
+    }
+    getAllResponseHeaders() {
+      if (this._responseXHR) {
+        return this._responseXHR.getAllResponseHeaders();
+      }
+      return super.getAllResponseHeaders();
+    }
+    get withCredentials() {
+      return super.withCredentials;
+    }
+    set withCredentials(value) {
+      super.withCredentials = value;
+    }
+    open(method, url, async, username, password) {
+      this._method = method;
+      this._url = url;
+      if (async !== void 0) this._async = async;
+      if (username !== void 0) this._username = username;
+      if (password !== void 0) this._password = password;
+      super.open(method, url, async ?? true, username, password);
     }
     setRequestHeader(name, value) {
-      this.#headers[name] = value;
+      const lowerName = name.toLowerCase();
+      if (this._headers[lowerName]) {
+        this._headers[lowerName] += `, ${value}`;
+      } else {
+        this._headers[lowerName] = value;
+      }
     }
     addEventListener(type, listener, options) {
-      this.#listeners.push([type, listener, options]);
+      this._listeners.push([type, listener, options]);
     }
     removeEventListener(type, listener, options) {
-      this.#listeners = this.#listeners.filter(
+      this._listeners = this._listeners.filter(
         ([t, l, o]) => t !== type || l !== listener || o !== options
       );
     }
-    #onload = null;
-    #onloadend = null;
-    #onerror = null;
-    #onprogress = null;
-    #onreadystatechange = null;
+    // Getters/Setters for event handlers
     get onload() {
-      return this.#onload;
+      return this._onload;
     }
     set onload(callback) {
-      this.#onload = callback;
+      this._onload = callback;
     }
     get onloadend() {
-      return this.#onloadend;
+      return this._onloadend;
     }
     set onloadend(callback) {
-      this.#onloadend = callback;
+      this._onloadend = callback;
     }
     get onerror() {
-      return this.#onerror;
+      return this._onerror;
     }
     set onerror(callback) {
-      this.#onerror = callback;
+      this._onerror = callback;
     }
     get onprogress() {
-      return this.#onprogress;
+      return this._onprogress;
     }
     set onprogress(callback) {
-      this.#onprogress = callback;
+      this._onprogress = callback;
     }
     get onreadystatechange() {
-      return this.#onreadystatechange;
+      return this._onreadystatechange;
     }
     set onreadystatechange(callback) {
-      this.#onreadystatechange = callback;
+      this._onreadystatechange = callback;
     }
+    // Overridden properties
     get status() {
-      return this.#responseXHR?.status ?? super.status;
+      return this._responseXHR?.status ?? super.status;
     }
     get statusText() {
-      return this.#responseXHR?.statusText ?? super.statusText;
+      return this._responseXHR?.statusText ?? super.statusText;
     }
     get responseURL() {
-      return this.#responseXHR?.responseURL ?? super.responseURL;
+      return this._responseXHR?.responseURL ?? super.responseURL;
     }
     get readyState() {
-      return this.#responseXHR?.readyState ?? super.readyState;
+      return this._responseXHR?.readyState ?? super.readyState;
     }
     get responseText() {
-      return this.#responseXHR?.__responseText ?? this.#responseXHR?.responseText ?? super.responseText;
+      return this._responseXHR?.__responseText ?? this._responseXHR?.responseText ?? super.responseText;
     }
     get responseType() {
-      return this.#responseXHR?.responseType ?? super.responseType;
+      return this._responseXHR?.responseType ?? super.responseType;
     }
     set responseType(value) {
       super.responseType = value;
     }
-    #responseXHR;
-    #getOnHandler(type) {
+    _getOnHandler(type) {
       switch (type) {
         case "load":
-          return this.#onload;
+          return this._onload;
         case "loadend":
-          return this.#onloadend;
+          return this._onloadend;
         case "error":
-          return this.#onerror;
+          return this._onerror;
         case "progress":
-          return this.#onprogress;
+          return this._onprogress;
         case "readystatechange":
-          return this.#onreadystatechange;
+          return this._onreadystatechange;
         default:
           return null;
       }
     }
-    // Build a Response by reading from `super.*` rather than `this.*`. When
-    // another extension subclasses CustomXHR (e.g. uBOL Lite's
-    // json-prune-xhr-response), `this.response` walks the whole prototype
-    // chain starting at the most-derived class, so vista's middleware would
-    // receive data that has already been processed by a downstream layer.
-    // Reading through `super` makes vista see only its direct upstream,
-    // which is what the request/response pipeline model requires — see
-    // docs/ubol-compat.md.
-    #buildResponseFromSuper() {
+    _buildResponseFromSuper() {
       const status = super.status;
       const statusText = super.statusText;
       const responseType = super.responseType;
       const superResponse = super.response;
-      const headers = parseHeadersText(
-        super.getAllResponseHeaders.call(this)
-      );
+      const headers = parseHeadersText(super.getAllResponseHeaders.call(this));
       let body = superResponse;
       if (BODYLESS_STATUS_CODES.includes(status)) {
         body = null;
@@ -208,12 +223,12 @@ export const interceptXHR = function(middlewares) {
       return new Response(body, { status, statusText, headers });
     }
     async send(body) {
-      this.#body = body;
+      this._body = body;
       const origin = {
-        req: new Request(this.#url, {
-          method: this.#method,
-          headers: this.#headers,
-          body: this.#method === "GET" ? null : body
+        req: new Request(this._url, {
+          method: this._method,
+          headers: this._headers,
+          body: this._method === "GET" ? null : body
         }),
         res: new Response()
       };
@@ -224,53 +239,33 @@ export const interceptXHR = function(middlewares) {
       };
       try {
         await handleRequest(c, [
-          ...CustomXHR.#middlewares,
-          this.#getMiddleware(origin)
+          ...CustomXHR._middlewares,
+          this._getMiddleware(origin)
         ]);
       } catch (err) {
         if (err instanceof HTTPException) {
-          this.#responseXHR = await responseToXHR(
-            err.getResponse(),
-            this.responseType
-          );
+          this._responseXHR = await responseToXHR(err.getResponse(), this.responseType);
         } else if (typeof err === "string") {
-          this.#responseXHR = await responseToXHR(
-            new Response(err, {
-              status: 500,
-              statusText: err
-            }),
-            this.responseType
-          );
+          this._responseXHR = await responseToXHR(new Response(err, { status: 500, statusText: err }), this.responseType);
         } else if (err instanceof Error) {
-          this.#responseXHR = await responseToXHR(
-            new Response(err.message, { status: 500 }),
-            this.responseType
-          );
+          this._responseXHR = await responseToXHR(new Response(err.message, { status: 500 }), this.responseType);
         } else {
-          this.#responseXHR = await responseToXHR(
-            new Response(JSON.stringify(err), {
-              status: 500,
-              statusText: "Internal Server Error"
-            }),
-            this.responseType
-          );
+          this._responseXHR = await responseToXHR(new Response(JSON.stringify(err), { status: 500, statusText: "Internal Server Error" }), this.responseType);
         }
         const errorEvent = new ProgressEvent("error");
-        this.#onerror?.call(this, errorEvent);
-        this.#listeners.filter(([type]) => type === "error").forEach(([_type, listener, _options]) => {
+        this._onerror?.call(this, errorEvent);
+        this._listeners.filter(([type]) => type === "error").forEach(([_type, listener, _options]) => {
           listener.call(this, errorEvent);
         });
         return;
       }
       if (c.res !== origin.res) {
-        this.#responseXHR = await responseToXHR(c.res, this.responseType);
+        this._responseXHR = await responseToXHR(c.res, this.responseType);
       }
-      const progressCallbacks = this.#listeners.filter(
-        ([type]) => type === "progress"
-      );
-      const hasProgress = progressCallbacks.length > 0 || this.#onprogress !== null;
+      const progressCallbacks = this._listeners.filter(([type]) => type === "progress");
+      const hasProgress = progressCallbacks.length > 0 || this._onprogress !== null;
       if (hasProgress) {
-        if (this.#responseXHR?.response instanceof ReadableStream && c.res.headers.get("Content-Type") === "text/event-stream") {
+        if (this._responseXHR?.response instanceof ReadableStream && c.res.headers.get("Content-Type") === "text/event-stream") {
           let responseText = "";
           const reader = c.res.clone().body.getReader();
           let receivedLength = 0;
@@ -284,8 +279,8 @@ export const interceptXHR = function(middlewares) {
               lengthComputable: true,
               total: parseInt(c.res.headers.get("Content-Length") || "0", 10)
             });
-            this.#responseXHR.__responseText = responseText;
-            this.#onprogress?.call(this, progressEvent);
+            this._responseXHR.__responseText = responseText;
+            this._onprogress?.call(this, progressEvent);
             progressCallbacks.forEach(([_type, listener, _options]) => {
               listener.call(this, progressEvent);
             });
@@ -293,7 +288,7 @@ export const interceptXHR = function(middlewares) {
           }
         } else {
           const progressEvent = new ProgressEvent("progress");
-          this.#onprogress?.call(this, progressEvent);
+          this._onprogress?.call(this, progressEvent);
           progressCallbacks.forEach(([_type, listener, _options]) => {
             listener.call(this, progressEvent);
           });
@@ -301,42 +296,26 @@ export const interceptXHR = function(middlewares) {
       }
       for (const type of ["load", "loadend", "readystatechange"]) {
         const event = new ProgressEvent(type);
-        this.#getOnHandler(type)?.call(this, event);
-        this.#listeners.filter(([t]) => t === type).forEach(([_t, listener, _options]) => {
+        this._getOnHandler(type)?.call(this, event);
+        this._listeners.filter(([t]) => t === type).forEach(([_t, listener, _options]) => {
           listener.call(this, event);
         });
       }
     }
-    #getMiddleware = (origin) => async (c) => {
+    _getMiddleware = (origin) => async (c) => {
       const openArgs = [c.req.method, c.req.url];
-      if (this.#async !== void 0) {
-        openArgs.push(this.#async);
-      }
-      if (this.#username !== void 0) {
-        openArgs.push(this.#username);
-      }
-      if (this.#password !== void 0) {
-        openArgs.push(this.#password);
-      }
+      if (this._async !== void 0) openArgs.push(this._async);
+      if (this._username !== void 0) openArgs.push(this._username);
+      if (this._password !== void 0) openArgs.push(this._password);
       super.open.apply(this, openArgs);
       for (const [name, value] of c.req.headers.entries()) {
-        if (name === "content-type" && value.startsWith("multipart/form-data; boundary=")) {
-          continue;
-        }
+        if (name === "content-type" && value.startsWith("multipart/form-data; boundary=")) continue;
         super.setRequestHeader.apply(this, [name, value]);
       }
-      this.#listeners.filter(
-        ([type]) => ![
-          "load",
-          "loadend",
-          "readystatechange",
-          "error",
-          "progress"
-        ].includes(type)
-      ).forEach(([type, listener, options]) => {
+      this._listeners.filter(([type]) => !["load", "loadend", "readystatechange", "error", "progress"].includes(type)).forEach(([type, listener, options]) => {
         super.addEventListener.apply(this, [type, listener, options]);
       });
-      let sendBody = this.#body;
+      let sendBody = this._body;
       if (c.req !== origin.req) {
         sendBody = await c.req.blob();
       }
@@ -344,7 +323,7 @@ export const interceptXHR = function(middlewares) {
         super.addEventListener.apply(this, [
           "load",
           (_ev) => {
-            c.res = this.#buildResponseFromSuper();
+            c.res = this._buildResponseFromSuper();
             origin.res = c.res;
             resolve();
           }
@@ -358,11 +337,9 @@ export const interceptXHR = function(middlewares) {
         super.addEventListener.apply(this, [
           "readystatechange",
           (ev) => {
-            if (this.readyState === XMLHttpRequest.DONE) {
-              return;
-            }
-            this.#onreadystatechange?.call(this, ev);
-            this.#listeners.filter(([type]) => type === "readystatechange").forEach(([_type, listener, _options]) => {
+            if (this.readyState === XMLHttpRequest.DONE) return;
+            this._onreadystatechange?.call(this, ev);
+            this._listeners.filter(([type]) => type === "readystatechange").forEach(([_type, listener, _options]) => {
               listener.call(this, ev);
             });
           }
@@ -370,7 +347,7 @@ export const interceptXHR = function(middlewares) {
         if (c.req !== origin.req) {
           super.send.apply(this, [sendBody]);
         } else {
-          super.send.apply(this, [this.#body]);
+          super.send.apply(this, [this._body]);
         }
       });
     };
