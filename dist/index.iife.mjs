@@ -52,7 +52,8 @@ class IsolatedWorldReceiver {
   }
   on(url, listener) {
     const wrapped = (message) => {
-      if (!matchBridgeUrl(url, message.url)) return;
+      const key = this.getKey(message.payload, message.url);
+      if (!matchBridgeUrl(url, key)) return;
       listener(message.payload);
     };
     this.listeners.add(wrapped);

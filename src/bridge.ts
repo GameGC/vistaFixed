@@ -80,11 +80,13 @@ export class IsolatedWorldReceiver<T = unknown> {
 
   on(url: string | RegExp, listener: (payload: T) => void): () => void {
     const wrapped = (message: BridgeMessage<T>) => {
-      if (!matchBridgeUrl(url, message.url)) return
-      listener(message.payload)
-    }
-    this.listeners.add(wrapped)
-    return () => this.listeners.delete(wrapped)
+      const key = this.getKey(message.payload, message.url);
+      if (!matchBridgeUrl(url, key)) return;
+      listener(message.payload);
+    };
+
+    this.listeners.add(wrapped);
+    return () => this.listeners.delete(wrapped);
   }
 
   wait(url: string | RegExp, timeoutMs = 15000): Promise<T | null> {
