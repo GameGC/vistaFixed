@@ -547,13 +547,15 @@ const interceptXHR = function(middlewares) {
       return xhr;
     }
   });
-  if (g.XMLHttpRequest === NativeXHR) {
+  const CurrentXHR = g.XMLHttpRequest;
+  if (CurrentXHR && !CurrentXHR.__vistaProxied) {
+    constructorProxy.__vistaProxied = true;
     g.XMLHttpRequest = constructorProxy;
     for (const key of ["UNSENT", "OPENED", "HEADERS_RECEIVED", "LOADING", "DONE"]) {
-      if (NativeXHR[key] !== void 0) {
+      if (CurrentXHR[key] !== void 0) {
         try {
           originalDefineProperty(constructorProxy, key, {
-            value: NativeXHR[key],
+            value: CurrentXHR[key],
             writable: false,
             configurable: false,
             enumerable: true
@@ -570,7 +572,7 @@ const interceptXHR = function(middlewares) {
     proto.abort = originalAbort;
     delete proto.__xhrPatched;
     if (g.XMLHttpRequest === constructorProxy) {
-      g.XMLHttpRequest = NativeXHR;
+      g.XMLHttpRequest = CurrentXHR;
     }
   };
 };

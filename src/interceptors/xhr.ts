@@ -369,16 +369,24 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
     },
   })
 
-  // Replace the global constructor — but only if it's still the same one we
-  // captured. If downstream code already replaced it, leave it alone.
-  if (g.XMLHttpRequest === NativeXHR) {
+  // ALWAYS replace the global constructor, even if downstream code already
+  // replaced it. This is CRITICAL for Chrome MV3 with world:'MAIN' where
+  // content scripts may run AFTER page inline scripts. If LinkedIn's
+  // interceptor captured the native open/send before our prototype patch,
+  // the only way to intercept their XHRs is to wrap the constructor so
+  // every new XMLHttpRequest() gets our instance-level overrides.
+  // The Proxy wraps whatever constructor is currently global (could be
+  // a subclass from metadata-hook or another extension).
+  const CurrentXHR = g.XMLHttpRequest
+  if (CurrentXHR && !(CurrentXHR as any).__vistaProxied) {
+    ;(constructorProxy as any).__vistaProxied = true
     g.XMLHttpRequest = constructorProxy as any
     // Copy static constants (UNSENT, OPENED, HEADERS_RECEIVED, etc.)
     for (const key of ['UNSENT', 'OPENED', 'HEADERS_RECEIVED', 'LOADING', 'DONE']) {
-      if ((NativeXHR as any)[key] !== undefined) {
+      if ((CurrentXHR as any)[key] !== undefined) {
         try {
           originalDefineProperty(constructorProxy, key, {
-            value: (NativeXHR as any)[key],
+            value: (CurrentXHR as any)[key],
             writable: false,
             configurable: false,
             enumerable: true,
@@ -396,7 +404,7 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
     proto.abort            = originalAbort
     delete (proto as any).__xhrPatched
     if (g.XMLHttpRequest === constructorProxy) {
-      g.XMLHttpRequest = NativeXHR
+      g.XMLHttpRequest = CurrentXHR
     }
   }
 }
