@@ -423,92 +423,94 @@ const interceptXHR = function(middlewares) {
   if (typeof g.XMLHttpRequest === "undefined") return () => {
   };
   const proto = g.XMLHttpRequest.prototype;
-  if (proto.__xhrPatched) return () => {
-  };
-  proto.__xhrPatched = true;
-  const originalOpen = proto.open;
-  const originalSetRequestHeader = proto.setRequestHeader;
-  const originalSend = proto.send;
-  const originalAbort = proto.abort;
   const NativeXHR = g.XMLHttpRequest;
   nativeXHRProto = NativeXHR.prototype;
-  proto.open = makeLookNative(function(method, url, async = true, username, password) {
-    const s = getState(this);
-    s.method = method;
-    s.url = url;
-    s.async = async;
-    s.username = username;
-    s.password = password;
-    s.headers = {};
-    s.done = false;
-    s.aborted = false;
-    s.shadow = void 0;
-    defineInstanceProp(this, "readyState", XMLHttpRequest.OPENED);
-    this.dispatchEvent(new ProgressEvent("readystatechange"));
-  }, originalOpen);
-  proto.setRequestHeader = makeLookNative(function(name, value) {
-    const lower = name.toLowerCase();
-    const s = getState(this);
-    s.headers[lower] = s.headers[lower] ? `${s.headers[lower]}, ${value}` : value;
-  }, originalSetRequestHeader);
-  proto.abort = makeLookNative(function() {
-    const s = getState(this);
-    s.aborted = true;
-    if (s.shadow) {
-      try {
-        s.shadow.abort();
-      } catch (_) {
+  const alreadyPatched = !!proto.__xhrPatched;
+  let originalOpen, originalSetRequestHeader, originalSend, originalAbort;
+  if (!alreadyPatched) {
+    proto.__xhrPatched = true;
+    originalOpen = proto.open;
+    originalSetRequestHeader = proto.setRequestHeader;
+    originalSend = proto.send;
+    originalAbort = proto.abort;
+    proto.open = makeLookNative(function(method, url, async = true, username, password) {
+      const s = getState(this);
+      s.method = method;
+      s.url = url;
+      s.async = async;
+      s.username = username;
+      s.password = password;
+      s.headers = {};
+      s.done = false;
+      s.aborted = false;
+      s.shadow = void 0;
+      defineInstanceProp(this, "readyState", XMLHttpRequest.OPENED);
+      this.dispatchEvent(new ProgressEvent("readystatechange"));
+    }, originalOpen);
+    proto.setRequestHeader = makeLookNative(function(name, value) {
+      const lower = name.toLowerCase();
+      const s = getState(this);
+      s.headers[lower] = s.headers[lower] ? `${s.headers[lower]}, ${value}` : value;
+    }, originalSetRequestHeader);
+    proto.abort = makeLookNative(function() {
+      const s = getState(this);
+      s.aborted = true;
+      if (s.shadow) {
+        try {
+          s.shadow.abort();
+        } catch (_) {
+        }
       }
-    }
-    if (!s.done) {
-      s.done = true;
-      defineInstanceProp(this, "readyState", XMLHttpRequest.DONE);
-      this.dispatchEvent(new ProgressEvent("abort"));
-      this.dispatchEvent(new ProgressEvent("loadend"));
-    }
-  }, originalAbort);
-  proto.send = makeLookNative(function(body) {
-    const self = this;
-    const s = getState(this);
-    s.body = body;
-    s.responseType = this.responseType;
-    s.withCredentials = this.withCredentials;
-    s.timeout = this.timeout;
-    const originReq = new Request(s.url, {
-      method: s.method,
-      headers: s.headers,
-      body: s.method.toUpperCase() === "GET" ? null : body
-    });
-    s.originReq = originReq;
-    const c = {
-      type: "xhr",
-      req: originReq,
-      res: new Response()
-    };
-    (async () => {
-      try {
-        await handleRequest(c, [
-          ...middlewares,
-          async (context) => {
-            context.res = await dispatchNativeXHR(
-              self,
-              context.req,
-              s,
-              NativeXHR,
-              originalOpen,
-              originalSetRequestHeader,
-              originalSend
-            );
-          }
-        ]);
-      } catch (err) {
-        await handleSendError(self, err, s);
-        return;
+      if (!s.done) {
+        s.done = true;
+        defineInstanceProp(this, "readyState", XMLHttpRequest.DONE);
+        this.dispatchEvent(new ProgressEvent("abort"));
+        this.dispatchEvent(new ProgressEvent("loadend"));
       }
-      if (s.aborted) return;
-      await dispatchResponseEvents(self, c, s);
-    })();
-  }, originalSend);
+    }, originalAbort);
+    proto.send = makeLookNative(function(body) {
+      const self = this;
+      const s = getState(this);
+      s.body = body;
+      s.responseType = this.responseType;
+      s.withCredentials = this.withCredentials;
+      s.timeout = this.timeout;
+      const originReq = new Request(s.url, {
+        method: s.method,
+        headers: s.headers,
+        body: s.method.toUpperCase() === "GET" ? null : body
+      });
+      s.originReq = originReq;
+      const c = {
+        type: "xhr",
+        req: originReq,
+        res: new Response()
+      };
+      (async () => {
+        try {
+          await handleRequest(c, [
+            ...middlewares,
+            async (context) => {
+              context.res = await dispatchNativeXHR(
+                self,
+                context.req,
+                s,
+                NativeXHR,
+                originalOpen,
+                originalSetRequestHeader,
+                originalSend
+              );
+            }
+          ]);
+        } catch (err) {
+          await handleSendError(self, err, s);
+          return;
+        }
+        if (s.aborted) return;
+        await dispatchResponseEvents(self, c, s);
+      })();
+    }, originalSend);
+  }
   const constructorProxy = new Proxy(NativeXHR, {
     construct(target, args, newTarget) {
       const xhr = Reflect.construct(target, args, newTarget);
@@ -566,11 +568,13 @@ const interceptXHR = function(middlewares) {
     }
   }
   return () => {
-    proto.open = originalOpen;
-    proto.setRequestHeader = originalSetRequestHeader;
-    proto.send = originalSend;
-    proto.abort = originalAbort;
-    delete proto.__xhrPatched;
+    if (!alreadyPatched) {
+      proto.open = originalOpen;
+      proto.setRequestHeader = originalSetRequestHeader;
+      proto.send = originalSend;
+      proto.abort = originalAbort;
+      delete proto.__xhrPatched;
+    }
     if (g.XMLHttpRequest === constructorProxy) {
       g.XMLHttpRequest = CurrentXHR;
     }
