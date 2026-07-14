@@ -87,13 +87,13 @@ function defineInstanceProp(xhr: XMLHttpRequest, prop: string, value: any) {
 
 function parseHeadersText(text: string): Record<string, string> {
   return text
-      .split('\r\n')
-      .filter(Boolean)
-      .reduce((acc, line) => {
-        const idx = line.indexOf(': ')
-        if (idx > -1) acc[line.slice(0, idx)] = line.slice(idx + 2)
-        return acc
-      }, {} as Record<string, string>)
+    .split('\r\n')
+    .filter(Boolean)
+    .reduce((acc, line) => {
+      const idx = line.indexOf(': ')
+      if (idx > -1) acc[line.slice(0, idx)] = line.slice(idx + 2)
+      return acc
+    }, {} as Record<string, string>)
 }
 
 /**
@@ -131,10 +131,10 @@ function hasSubclassResponseOverride(xhr: XMLHttpRequest): boolean {
  * `xhr.response`, `xhr.status`, etc. reflect middleware mutations.
  */
 async function applyResponseToXHR(
-    xhr: XMLHttpRequest,
-    res: Response,
-    responseType: XMLHttpRequestResponseType,
-    isStreaming: boolean,
+  xhr: XMLHttpRequest,
+  res: Response,
+  responseType: XMLHttpRequestResponseType,
+  isStreaming: boolean,
 ): Promise<{ responseValue: any; responseTextValue: string }> {
   const headers: Record<string, string> = {}
   res.headers.forEach((value, key) => { headers[key] = value })
@@ -182,12 +182,12 @@ async function applyResponseToXHR(
   }
 
   defineInstanceProp(xhr, 'getAllResponseHeaders', () =>
-      Object.entries(headers)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join('\r\n'),
+    Object.entries(headers)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\r\n'),
   )
   defineInstanceProp(xhr, 'getResponseHeader', (name: string) =>
-      headers[name.toLowerCase()] ?? null,
+    headers[name.toLowerCase()] ?? null,
   )
 
   return { responseValue, responseTextValue }
@@ -220,104 +220,104 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
   if (!alreadyPatched) {
     proto.__xhrPatched = true
 
-    originalOpen             = proto.open
-    originalSetRequestHeader = proto.setRequestHeader
-    originalSend             = proto.send
-    originalAbort            = proto.abort
+  originalOpen             = proto.open
+  originalSetRequestHeader = proto.setRequestHeader
+  originalSend             = proto.send
+  originalAbort            = proto.abort
 
-    // ------ open ---------------------------------------------------------------
-    proto.open = makeLookNative(function (
-        this: XMLHttpRequest,
-        method: string,
-        url: string | URL,
-        async = true,
-        username?: string | null,
-        password?: string | null,
-    ) {
-      const s = getState(this)
-      s.method   = method
-      s.url      = url
-      s.async    = async
-      s.username = username
-      s.password = password
-      s.headers  = {}
-      s.done     = false
-      s.aborted  = false
-      s.shadow   = undefined
+  // ------ open ---------------------------------------------------------------
+  proto.open = makeLookNative(function (
+      this: XMLHttpRequest,
+      method: string,
+      url: string | URL,
+      async = true,
+      username?: string | null,
+      password?: string | null,
+  ) {
+    const s = getState(this)
+    s.method   = method
+    s.url      = url
+    s.async    = async
+    s.username = username
+    s.password = password
+    s.headers  = {}
+    s.done     = false
+    s.aborted  = false
+    s.shadow   = undefined
 
-      defineInstanceProp(this, 'readyState', XMLHttpRequest.OPENED)
-      this.dispatchEvent(new ProgressEvent('readystatechange'))
-    }, originalOpen)
+    defineInstanceProp(this, 'readyState', XMLHttpRequest.OPENED)
+    this.dispatchEvent(new ProgressEvent('readystatechange'))
+  }, originalOpen)
 
-    // ------ setRequestHeader ---------------------------------------------------
-    proto.setRequestHeader = makeLookNative(function (this: XMLHttpRequest, name: string, value: string) {
-      const lower = name.toLowerCase()
-      const s     = getState(this)
-      s.headers[lower] = s.headers[lower] ? `${s.headers[lower]}, ${value}` : value
-    }, originalSetRequestHeader)
+  // ------ setRequestHeader ---------------------------------------------------
+  proto.setRequestHeader = makeLookNative(function (this: XMLHttpRequest, name: string, value: string) {
+    const lower = name.toLowerCase()
+    const s     = getState(this)
+    s.headers[lower] = s.headers[lower] ? `${s.headers[lower]}, ${value}` : value
+  }, originalSetRequestHeader)
 
-    // ------ abort --------------------------------------------------------------
-    proto.abort = makeLookNative(function (this: XMLHttpRequest) {
-      const s = getState(this)
-      s.aborted = true
-      if (s.shadow) {
-        try { s.shadow.abort() } catch (_) {}
+  // ------ abort --------------------------------------------------------------
+  proto.abort = makeLookNative(function (this: XMLHttpRequest) {
+    const s = getState(this)
+    s.aborted = true
+    if (s.shadow) {
+      try { s.shadow.abort() } catch (_) {}
+    }
+    if (!s.done) {
+      s.done = true
+      defineInstanceProp(this, 'readyState', XMLHttpRequest.DONE)
+      this.dispatchEvent(new ProgressEvent('abort'))
+      this.dispatchEvent(new ProgressEvent('loadend'))
+    }
+  }, originalAbort)
+
+  // ------ send ---------------------------------------------------------------
+  proto.send = makeLookNative(function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
+    const self = this
+    const s    = getState(this)
+    s.body      = body
+    s.responseType = this.responseType
+    s.withCredentials = this.withCredentials
+    s.timeout   = this.timeout
+
+    const originReq = new Request(s.url, {
+      method:  s.method,
+      headers: s.headers,
+      body:    s.method.toUpperCase() === 'GET' ? null : (body as any),
+    })
+    s.originReq = originReq
+
+    const c: FetchContext = {
+      type: 'xhr',
+      req:  originReq,
+      res:  new Response(),
+    }
+
+    ;(async () => {
+      try {
+        await handleRequest(c, [
+          ...middlewares,
+          async (context) => {
+            context.res = await dispatchNativeXHR(
+                self,
+                context.req,
+                s,
+                NativeXHR,
+                originalOpen,
+                originalSetRequestHeader,
+                originalSend,
+            )
+          },
+        ])
+      } catch (err) {
+        await handleSendError(self, err, s)
+        return
       }
-      if (!s.done) {
-        s.done = true
-        defineInstanceProp(this, 'readyState', XMLHttpRequest.DONE)
-        this.dispatchEvent(new ProgressEvent('abort'))
-        this.dispatchEvent(new ProgressEvent('loadend'))
-      }
-    }, originalAbort)
 
-    // ------ send ---------------------------------------------------------------
-    proto.send = makeLookNative(function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
-      const self = this
-      const s    = getState(this)
-      s.body      = body
-      s.responseType = this.responseType
-      s.withCredentials = this.withCredentials
-      s.timeout   = this.timeout
-
-      const originReq = new Request(s.url, {
-        method:  s.method,
-        headers: s.headers,
-        body:    s.method.toUpperCase() === 'GET' ? null : (body as any),
-      })
-      s.originReq = originReq
-
-      const c: FetchContext = {
-            type: 'xhr',
-            req:  originReq,
-            res:  new Response(),
-          }
-
-      ;(async () => {
-        try {
-          await handleRequest(c, [
-            ...middlewares,
-            async (context) => {
-              context.res = await dispatchNativeXHR(
-                  self,
-                  context.req,
-                  s,
-                  NativeXHR,
-                  originalOpen,
-                  originalSetRequestHeader,
-                  originalSend,
-              )
-            },
-          ])
-        } catch (err) {
-          await handleSendError(self, err, s)
-          return
-        }
-
-        if (s.aborted) return
-        await dispatchResponseEvents(self, c, s)
-      })()
-    }, originalSend)
+      if (s.aborted) return
+      await dispatchResponseEvents(self, c, s)
+    })()
+  }, originalSend)
   } // end if (!alreadyPatched)
 
   // ------ constructor Proxy (ALWAYS install) ---------------------------------
@@ -542,7 +542,7 @@ async function dispatchResponseEvents(xhr: XMLHttpRequest, c: FetchContext, s: X
   s.done = true
 
   const isSSE = c.res.body !== null
-      && c.res.headers.get('Content-Type') === 'text/event-stream'
+    && c.res.headers.get('Content-Type') === 'text/event-stream'
 
   if (isSSE) {
     // ---- Streaming: keep readyState at LOADING while we pump chunks ----
@@ -595,12 +595,12 @@ async function dispatchResponseEvents(xhr: XMLHttpRequest, c: FetchContext, s: X
     defineInstanceProp(xhr, 'responseURL', c.res.url || '')
     defineInstanceProp(xhr, 'readyState', XMLHttpRequest.DONE)
     defineInstanceProp(xhr, 'getAllResponseHeaders', () =>
-        Object.entries(headers)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join('\r\n'),
+      Object.entries(headers)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\r\n'),
     )
     defineInstanceProp(xhr, 'getResponseHeader', (name: string) =>
-        headers[name.toLowerCase()] ?? null,
+      headers[name.toLowerCase()] ?? null,
     )
   } else {
     // ---- Normal response: parse body according to responseType ----
