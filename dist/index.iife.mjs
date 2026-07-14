@@ -509,12 +509,69 @@ const interceptXHR = function(middlewares) {
       await dispatchResponseEvents(self, c, s);
     })();
   }, originalSend);
+  const constructorProxy = new Proxy(NativeXHR, {
+    construct(target, args, newTarget) {
+      const xhr = Reflect.construct(target, args, newTarget);
+      originalDefineProperty(xhr, "open", {
+        value: function(...args2) {
+          return proto.open.apply(this, args2);
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+      originalDefineProperty(xhr, "setRequestHeader", {
+        value: function(...args2) {
+          return proto.setRequestHeader.apply(this, args2);
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+      originalDefineProperty(xhr, "send", {
+        value: function(...args2) {
+          return proto.send.apply(this, args2);
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+      originalDefineProperty(xhr, "abort", {
+        value: function(...args2) {
+          return proto.abort.apply(this, args2);
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+      return xhr;
+    }
+  });
+  if (g.XMLHttpRequest === NativeXHR) {
+    g.XMLHttpRequest = constructorProxy;
+    for (const key of ["UNSENT", "OPENED", "HEADERS_RECEIVED", "LOADING", "DONE"]) {
+      if (NativeXHR[key] !== void 0) {
+        try {
+          originalDefineProperty(constructorProxy, key, {
+            value: NativeXHR[key],
+            writable: false,
+            configurable: false,
+            enumerable: true
+          });
+        } catch (_) {
+        }
+      }
+    }
+  }
   return () => {
     proto.open = originalOpen;
     proto.setRequestHeader = originalSetRequestHeader;
     proto.send = originalSend;
     proto.abort = originalAbort;
     delete proto.__xhrPatched;
+    if (g.XMLHttpRequest === constructorProxy) {
+      g.XMLHttpRequest = NativeXHR;
+    }
   };
 };
 async function dispatchNativeXHR(xhr, req, s, NativeXHR, originalOpen, originalSetRequestHeader, originalSend) {

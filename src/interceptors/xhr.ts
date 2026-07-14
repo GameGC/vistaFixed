@@ -314,6 +314,80 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
     })()
   }, originalSend)
 
+  // ------ constructor Proxy (catches XHRs created after patch) ---------------
+  //
+  // CRITICAL: Some page scripts (e.g. LinkedIn's ember-fetch polyfill) create
+  // XHR instances via `new XMLHttpRequest()` and call `l.open()` / `l.send()`
+  // dynamically. In Chrome MV3 with world:'MAIN', there's a known timing issue
+  // where prototype patches may not be visible to these instances. By wrapping
+  // the constructor with a Proxy, we set INSTANCE-LEVEL overrides on every new
+  // XHR that dynamically delegate to the prototype — guaranteeing our
+  // interceptor runs while still respecting downstream prototype patches.
+  //
+  const constructorProxy = new Proxy(NativeXHR, {
+    construct(target: any, args: any[], newTarget: any) {
+      const xhr = Reflect.construct(target, args, newTarget) as XMLHttpRequest
+      // Set instance-level overrides that dynamically look up the prototype's
+      // current method. This ensures:
+      // 1. Even if the prototype patch isn't visible to the instance (Chrome
+      //    MV3 timing bug), the instance calls proto.open which IS patched.
+      // 2. If downstream code later patches proto.open, the instance sees
+      //    the latest version (downstream patches still work).
+      originalDefineProperty(xhr, 'open', {
+        value: function (this: XMLHttpRequest, ...args: any[]) {
+          return proto.open.apply(this, args as any)
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      })
+      originalDefineProperty(xhr, 'setRequestHeader', {
+        value: function (this: XMLHttpRequest, ...args: any[]) {
+          return proto.setRequestHeader.apply(this, args as any)
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      })
+      originalDefineProperty(xhr, 'send', {
+        value: function (this: XMLHttpRequest, ...args: any[]) {
+          return proto.send.apply(this, args as any)
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      })
+      originalDefineProperty(xhr, 'abort', {
+        value: function (this: XMLHttpRequest, ...args: any[]) {
+          return proto.abort.apply(this, args as any)
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      })
+      return xhr
+    },
+  })
+
+  // Replace the global constructor — but only if it's still the same one we
+  // captured. If downstream code already replaced it, leave it alone.
+  if (g.XMLHttpRequest === NativeXHR) {
+    g.XMLHttpRequest = constructorProxy as any
+    // Copy static constants (UNSENT, OPENED, HEADERS_RECEIVED, etc.)
+    for (const key of ['UNSENT', 'OPENED', 'HEADERS_RECEIVED', 'LOADING', 'DONE']) {
+      if ((NativeXHR as any)[key] !== undefined) {
+        try {
+          originalDefineProperty(constructorProxy, key, {
+            value: (NativeXHR as any)[key],
+            writable: false,
+            configurable: false,
+            enumerable: true,
+          })
+        } catch (_) {}
+      }
+    }
+  }
+
   // ------ teardown -----------------------------------------------------------
   return () => {
     proto.open             = originalOpen
@@ -321,6 +395,9 @@ export const interceptXHR: Interceptor<FetchMiddleware> = function (
     proto.send             = originalSend
     proto.abort            = originalAbort
     delete (proto as any).__xhrPatched
+    if (g.XMLHttpRequest === constructorProxy) {
+      g.XMLHttpRequest = NativeXHR
+    }
   }
 }
 
