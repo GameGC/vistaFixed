@@ -1,34 +1,43 @@
 import { handleRequest } from "../context.mjs";
 import { HTTPException } from "../http-exception.mjs";
-export function stripRequestSignal(req) {
+export async function stripRequestSignal(req) {
   const {
     method,
     headers,
-    body,
     mode,
     credentials,
-    cache,
-    redirect,
-    integrity,
-    referrer,
-    referrerPolicy
-  } = req;
-  const init = {
-    method,
-    headers,
-    body,
-    mode,
-    // IMPORTANT: Preserve these
-    credentials,
-    // IMPORTANT: Preserve these
     cache,
     redirect,
     integrity,
     referrer,
     referrerPolicy,
+    keepalive
+  } = req;
+  let body = null;
+  if (req.body) {
+    try {
+      body = new Uint8Array(await req.clone().arrayBuffer());
+    } catch {
+      body = req.body;
+    }
+  }
+  const isStream = body instanceof ReadableStream;
+  const init = {
+    method,
+    headers,
+    body,
+    mode,
+    credentials,
+    cache,
+    redirect,
+    integrity,
+    referrer,
+    referrerPolicy,
+    keepalive: isStream ? void 0 : keepalive,
+    // ← v2-гард
     signal: void 0
   };
-  if (body instanceof ReadableStream) {
+  if (isStream) {
     ;
     init.duplex = "half";
   }
@@ -51,7 +60,7 @@ export const interceptFetch = function(middlewares) {
       req = new Request(input, init);
     }
     if (req.signal && !req.signal.aborted) {
-      req = stripRequestSignal(req);
+      req = await stripRequestSignal(req);
     }
     const c = {
       req,

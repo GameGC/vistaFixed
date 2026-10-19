@@ -15,35 +15,32 @@ export interface FetchMiddleware {
   (c: FetchContext, next: () => Promise<void>): void | Promise<void>
 }
 
-export function stripRequestSignal(req: Request): Request {
+export async function stripRequestSignal(req: Request): Promise<Request> {
   const {
-    method,
-    headers,
-    body,
-    mode,
-    credentials,
-    cache,
-    redirect,
-    integrity,
-    referrer,
-    referrerPolicy,
+    method, headers, mode, credentials, cache,
+    redirect, integrity, referrer, referrerPolicy, keepalive,
   } = req
 
+  let body: BodyInit | null = null
+  if (req.body) {
+    try {
+      body = new Uint8Array(await req.clone().arrayBuffer())
+    } catch {
+      body = req.body            // fallback: настоящий стрим
+    }
+  }
+
+  const isStream = body instanceof ReadableStream
+
   const init: RequestInit = {
-    method,
-    headers,
-    body,
-    mode, // IMPORTANT: Preserve these
-    credentials, // IMPORTANT: Preserve these
-    cache,
-    redirect,
-    integrity,
-    referrer,
-    referrerPolicy,
+    method, headers, body,
+    mode, credentials, cache, redirect, integrity,
+    referrer, referrerPolicy,
+    keepalive: isStream ? undefined : keepalive,   // ← v2-гард
     signal: undefined,
   }
 
-  if (body instanceof ReadableStream) {
+  if (isStream) {
     ;(init as any).duplex = 'half'
   }
 
@@ -78,7 +75,7 @@ export const interceptFetch: Interceptor<FetchMiddleware> = function (
     }
 
     if (req.signal && !req.signal.aborted) {
-      req = stripRequestSignal(req)
+      req = await stripRequestSignal(req)
     }
 
     const c: FetchContext = {
