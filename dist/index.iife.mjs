@@ -198,29 +198,8 @@ class HTTPException extends Error {
   }
 }
 
-async function stripRequestSignal(req) {
+function stripRequestSignal(req) {
   const {
-    method,
-    headers,
-    mode,
-    credentials,
-    cache,
-    redirect,
-    integrity,
-    referrer,
-    referrerPolicy,
-    keepalive
-  } = req;
-  let body = null;
-  if (req.body) {
-    try {
-      body = new Uint8Array(await req.clone().arrayBuffer());
-    } catch {
-      body = req.body;
-    }
-  }
-  const isStream = body instanceof ReadableStream;
-  const init = {
     method,
     headers,
     body,
@@ -230,12 +209,24 @@ async function stripRequestSignal(req) {
     redirect,
     integrity,
     referrer,
+    referrerPolicy
+  } = req;
+  const init = {
+    method,
+    headers,
+    body,
+    mode,
+    // IMPORTANT: Preserve these
+    credentials,
+    // IMPORTANT: Preserve these
+    cache,
+    redirect,
+    integrity,
+    referrer,
     referrerPolicy,
-    keepalive: isStream ? void 0 : keepalive,
-    // ← v2-гард
     signal: void 0
   };
-  if (isStream) {
+  if (body instanceof ReadableStream) {
     init.duplex = "half";
   }
   return new Request(req.url, init);
@@ -257,7 +248,7 @@ const interceptFetch = function(middlewares) {
       req = new Request(input, init);
     }
     if (req.signal && !req.signal.aborted) {
-      req = await stripRequestSignal(req);
+      req = stripRequestSignal(req);
     }
     const c = {
       req,
