@@ -28,6 +28,7 @@ export function stripRequestSignal(req: Request): Request {
     integrity,
     referrer,
     referrerPolicy,
+    keepalive
   } = req
 
   const init: RequestInit = {
@@ -41,6 +42,7 @@ export function stripRequestSignal(req: Request): Request {
     integrity,
     referrer,
     referrerPolicy,
+    keepalive: keepalive,
     signal: undefined,
   }
 

@@ -9,7 +9,7 @@ export interface ResponseMiddleware {
   (c: FetchContext, next: () => Promise<void>): void | Promise<void>
 }
 
-/*
+
 export async function readBodyUntracked(
   res: Response,
   how: 'arrayBuffer' | 'json' | 'text',
@@ -23,7 +23,6 @@ export async function readBodyUntracked(
   }
   return native.call(res)
 }
-*/
 
 export const interceptResponse: Interceptor<ResponseMiddleware> = function (
   middlewares: BaseMiddleware<FetchContext>[],
@@ -70,8 +69,9 @@ export const interceptResponse: Interceptor<ResponseMiddleware> = function (
     if (typeof orig !== 'function') continue
 
     const wrapped = async function (this: Response) {
+      const result = await orig.apply(this, arguments as any)
       dispatch(this)
-      return;
+      return result
     }
     makeLookNative(wrapped, orig)
     try {
