@@ -8,16 +8,15 @@ export const interceptResponse = function(middlewares) {
   if (!middlewares || middlewares.length === 0) return () => {
   };
   const proto = globalContext.Response.prototype;
-  const dispatch = (res, via) => {
+  const dispatch = (res) => {
     try {
       const url = res.url || "";
       if (!url) return;
       if (deliveredByRequestChannel.has(res)) return;
       const c = {
-        type: "response",
-        req: { url, method: "" },
-        res,
-        via
+        req: new Request(url),
+        res: new Response(),
+        type: "fetch"
       };
       handleRequest(c, middlewares).catch(
         (err) => {
@@ -33,7 +32,7 @@ export const interceptResponse = function(middlewares) {
     const orig = proto[name];
     if (typeof orig !== "function") continue;
     const wrapped = async function() {
-      dispatch(this, name);
+      dispatch(this);
       return;
     };
     makeLookNative(wrapped, orig);

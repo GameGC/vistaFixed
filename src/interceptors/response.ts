@@ -1,20 +1,12 @@
 import { handleRequest } from '../context'
 import { BaseMiddleware, Interceptor } from '../types'
-import { getGlobalThis } from './fetch'
+import {FetchContext, getGlobalThis} from './fetch'
 import { deliveredByRequestChannel, makeLookNative, responseNatives } from './shared'
 
 
-export interface ResponseContext {
-  type: 'response'
-  req: { url: string; method: string }
-  res: Response
-  via: 'arrayBuffer' | 'json' | 'text'
-
-  [key: string]: any
-}
 
 export interface ResponseMiddleware {
-  (c: ResponseContext, next: () => Promise<void>): void | Promise<void>
+  (c: FetchContext, next: () => Promise<void>): void | Promise<void>
 }
 
 /*
@@ -34,7 +26,7 @@ export async function readBodyUntracked(
 */
 
 export const interceptResponse: Interceptor<ResponseMiddleware> = function (
-  middlewares: BaseMiddleware<ResponseContext>[],
+  middlewares: BaseMiddleware<FetchContext>[],
 ) {
   const globalContext = getGlobalThis() as any
   if (typeof globalContext.Response === 'undefined') return () => {}
@@ -45,20 +37,19 @@ export const interceptResponse: Interceptor<ResponseMiddleware> = function (
 
   const dispatch = (
     res: Response,
-    via: 'arrayBuffer' | 'json' | 'text',
   ): void => {
     try {
       const url = res.url || ''
       if (!url) return
       if (deliveredByRequestChannel.has(res)) return
 
-      const c: ResponseContext = {
-        type: 'response',
-        req: { url, method: '' },
-        res,
-        via,
+      const c: FetchContext = {
+        req: new Request(url),
+        res: new Response(),
+        type: 'fetch',
       }
-      handleRequest(c, middlewares as BaseMiddleware<ResponseContext>[]).catch(
+
+      handleRequest(c, middlewares).catch(
         (err) => {
           console.error('[vista] response middleware failed', err)
         },
@@ -79,7 +70,7 @@ export const interceptResponse: Interceptor<ResponseMiddleware> = function (
     if (typeof orig !== 'function') continue
 
     const wrapped = async function (this: Response) {
-      dispatch(this, name)
+      dispatch(this)
       return;
     }
     makeLookNative(wrapped, orig)
