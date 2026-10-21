@@ -1,5 +1,6 @@
 import { FetchContext } from './interceptors/fetch'
 import {TapObservable} from "./vista";
+import {ResponseContext} from "./interceptors/response";
 
 export function getBridgeSource(): string {
   return `vista-bridge:${window.location.origin}`

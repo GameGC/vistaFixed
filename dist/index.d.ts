@@ -1,6 +1,7 @@
 export * from './types';
 export * from './vista';
 export * from './interceptors/fetch';
+export * from './interceptors/response';
 export * from './interceptors/xhr';
 export * from './interceptors/ws';
 export * from './middlewares/timeout';

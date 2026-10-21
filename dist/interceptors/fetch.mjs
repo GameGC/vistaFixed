@@ -1,5 +1,6 @@
 import { handleRequest } from "../context.mjs";
 import { HTTPException } from "../http-exception.mjs";
+import { markDelivered } from "./shared.mjs";
 export function stripRequestSignal(req) {
   const {
     method,
@@ -74,6 +75,7 @@ export const interceptFetch = function(middlewares) {
       }
       throw err;
     }
+    markDelivered(c.res);
     return c.res;
   };
   return () => {

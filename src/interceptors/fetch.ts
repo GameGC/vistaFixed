@@ -1,6 +1,7 @@
 import { handleRequest } from '../context'
 import { HTTPException } from '../http-exception'
 import { Interceptor } from '../types'
+import {markDelivered} from "./shared";
 
 export interface FetchContext {
   type: 'fetch' | 'xhr' | 'request'
@@ -103,6 +104,8 @@ export const interceptFetch: Interceptor<FetchMiddleware> = function (
       }
       throw err
     }
+
+    markDelivered(c.res)
     return c.res
   }
 

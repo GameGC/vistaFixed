@@ -198,6 +198,48 @@ class HTTPException extends Error {
   }
 }
 
+const deliveredByRequestChannel = /* @__PURE__ */ new WeakSet();
+function markDelivered(res) {
+  try {
+    deliveredByRequestChannel.add(res);
+  } catch {
+  }
+}
+(() => {
+  try {
+    if (typeof Response === "undefined" || !Response.prototype) return {};
+    return {
+      arrayBuffer: Response.prototype.arrayBuffer,
+      json: Response.prototype.json,
+      text: Response.prototype.text
+    };
+  } catch {
+    return {};
+  }
+})();
+const originalDefineProperty$2 = Object.defineProperty;
+const originalFunctionToString$2 = Function.prototype.toString;
+function makeLookNative$2(replacementFn, nativeFn) {
+  const nativeSource = originalFunctionToString$2.call(nativeFn);
+  originalDefineProperty$2(replacementFn, "toString", {
+    value() {
+      return nativeSource;
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false
+  });
+  try {
+    originalDefineProperty$2(replacementFn, "name", { value: nativeFn.name, configurable: true });
+  } catch (_) {
+  }
+  try {
+    originalDefineProperty$2(replacementFn, "length", { value: nativeFn.length, configurable: true });
+  } catch (_) {
+  }
+  return replacementFn;
+}
+
 function stripRequestSignal(req) {
   const {
     method,
@@ -271,6 +313,7 @@ const interceptFetch = function(middlewares) {
       }
       throw err;
     }
+    markDelivered(c.res);
     return c.res;
   };
   return () => {
@@ -299,6 +342,56 @@ function makeLookNative$1(replacementFn, nativeFn) {
   }
   return replacementFn;
 }
+
+const interceptResponse = function(middlewares) {
+  const globalContext = getGlobalThis();
+  if (typeof globalContext.Response === "undefined") return () => {
+  };
+  if (!middlewares || middlewares.length === 0) return () => {
+  };
+  const proto = globalContext.Response.prototype;
+  const dispatch = (res, via) => {
+    try {
+      const url = res.url || "";
+      if (!url) return;
+      if (deliveredByRequestChannel.has(res)) return;
+      const c = {
+        type: "response",
+        req: { url, method: "" },
+        res,
+        via
+      };
+      handleRequest(c, middlewares).catch(
+        (err) => {
+          console.error("[vista] response middleware failed", err);
+        }
+      );
+    } catch (err) {
+      console.error("[vista] response dispatch failed", err);
+    }
+  };
+  const installed = [];
+  for (const name of ["arrayBuffer", "json", "text"]) {
+    const orig = proto[name];
+    if (typeof orig !== "function") continue;
+    const wrapped = async function() {
+      dispatch(this, name);
+      return;
+    };
+    makeLookNative$2(wrapped, orig);
+    try {
+      proto[name] = wrapped;
+    } catch {
+      continue;
+    }
+    installed.push({ name, orig, wrapped });
+  }
+  return () => {
+    for (const { name, orig, wrapped } of installed) {
+      if (proto[name] === wrapped) proto[name] = orig;
+    }
+  };
+};
 
 const BODYLESS_STATUS_CODES = [101, 204, 205, 304];
 const originalDefineProperty = Object.defineProperty;
@@ -994,6 +1087,7 @@ const Vista = {
   getBridgeSource: getBridgeSource,
   getGlobalThis: getGlobalThis,
   interceptFetch: interceptFetch,
+  interceptResponse: interceptResponse,
   interceptWebSocket: interceptWebSocket,
   interceptXHR: interceptXHR,
   matchBridgeUrl: matchBridgeUrl,
