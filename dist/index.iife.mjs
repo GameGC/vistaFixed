@@ -205,7 +205,7 @@ function markDelivered(res) {
   } catch {
   }
 }
-(() => {
+const responseNatives = (() => {
   try {
     if (typeof Response === "undefined" || !Response.prototype) return {};
     return {
@@ -251,7 +251,8 @@ function stripRequestSignal(req) {
     redirect,
     integrity,
     referrer,
-    referrerPolicy
+    referrerPolicy,
+    keepalive
   } = req;
   const init = {
     method,
@@ -266,6 +267,7 @@ function stripRequestSignal(req) {
     integrity,
     referrer,
     referrerPolicy,
+    keepalive,
     signal: void 0
   };
   if (body instanceof ReadableStream) {
@@ -343,6 +345,13 @@ function makeLookNative$1(replacementFn, nativeFn) {
   return replacementFn;
 }
 
+async function readBodyUntracked(res, how) {
+  const native = responseNatives[how] ?? Response.prototype[how] ?? res[how]?.bind(res);
+  if (typeof native !== "function") {
+    throw new Error(`[vista] Response.${how} \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D`);
+  }
+  return native.call(res);
+}
 const interceptResponse = function(middlewares) {
   const globalContext = getGlobalThis();
   if (typeof globalContext.Response === "undefined") return () => {
@@ -357,7 +366,7 @@ const interceptResponse = function(middlewares) {
       if (deliveredByRequestChannel.has(res)) return;
       const c = {
         req: new Request(url),
-        res: new Response(),
+        res,
         type: "fetch"
       };
       handleRequest(c, middlewares).catch(
@@ -374,8 +383,9 @@ const interceptResponse = function(middlewares) {
     const orig = proto[name];
     if (typeof orig !== "function") continue;
     const wrapped = async function() {
+      const result = await orig.apply(this, arguments);
       dispatch(this);
-      return;
+      return result;
     };
     makeLookNative$2(wrapped, orig);
     try {
@@ -1092,6 +1102,7 @@ const Vista = {
   matchBridgeUrl: matchBridgeUrl,
   postBridgeMessage: postBridgeMessage,
   prettyJSON: prettyJSON,
+  readBodyUntracked: readBodyUntracked,
   relay: relay,
   stripRequestSignal: stripRequestSignal,
   timeout: timeout

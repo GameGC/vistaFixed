@@ -12,7 +12,8 @@ export function stripRequestSignal(req) {
     redirect,
     integrity,
     referrer,
-    referrerPolicy
+    referrerPolicy,
+    keepalive
   } = req;
   const init = {
     method,
@@ -27,6 +28,7 @@ export function stripRequestSignal(req) {
     integrity,
     referrer,
     referrerPolicy,
+    keepalive,
     signal: void 0
   };
   if (body instanceof ReadableStream) {

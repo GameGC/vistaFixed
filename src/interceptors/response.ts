@@ -44,7 +44,7 @@ export const interceptResponse: Interceptor<ResponseMiddleware> = function (
 
       const c: FetchContext = {
         req: new Request(url),
-        res: new Response(),
+        res: res,
         type: 'fetch',
       }
 
